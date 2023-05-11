@@ -2,7 +2,7 @@ use crate::Config;
 
 use super::{
     cache::CachePolicy, error::AxumNope, metrics::request_recorder, rustdoc::add_to_queue,
-    statics::build_static_router, auth::{logout, authorize, authenticated, login}, AppState,
+    statics::build_static_router, auth::{logout, authorize, login, authenticate, authorized}, AppState,
 };
 use axum::{
     handler::Handler as AxumHandler,
@@ -300,8 +300,9 @@ pub(super) fn build_axum_routes(config: Arc<Config>) -> AxumRouter {
             get_rustdoc(super::rustdoc::rustdoc_html_server_handler),
         )
         .route("/queue", post(add_to_queue))
-        .route_layer(middleware::from_fn(authenticated))
+        .route_layer(middleware::from_fn(authorized))
         .route("/login", get(login))
+        .route("/authenticate", get(authenticate))
         .route("/authorize", get(authorize))
         .route("/logout", get(logout))
         .with_state(state)

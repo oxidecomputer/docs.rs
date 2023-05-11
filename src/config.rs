@@ -101,7 +101,7 @@ pub struct Config {
     pub(crate) disable_memory_limit: bool,
 
     // Authentication params
-    pub(crate) session_cookie: String,
+    pub(crate) authentication_enabled: bool,
     pub(crate) session_key: String,
     pub(crate) oauth_domain: String,
     pub(crate) oauth_client_id: String,
@@ -210,7 +210,7 @@ impl Config {
             include_default_targets: env("DOCSRS_INCLUDE_DEFAULT_TARGETS", true)?,
             disable_memory_limit: env("DOCSRS_DISABLE_MEMORY_LIMIT", false)?,
 
-            session_cookie: require_env("SESSION_COOKIE")?,
+            authentication_enabled: require_env("AUTH_REQUIRED")?,
             session_key: require_env("SESSION_KEY")?,
             oauth_domain: require_env("OAUTH_DOMAIN")?,
             oauth_client_id: require_env("OAUTH_CLIENT_ID")?,

@@ -15,8 +15,22 @@ use crate::{Config, web::error::internal_error};
 
 use super::AppState;
 
-// Two week cookie durations
+// Duration (in seconds) that a user will remain logged in for
 const SESSION_DURATION: i64 = 60;
+
+// Duration (in seconds) that a user must complete a log in attempt before the csrf token expires
+const CSRF_DURATION: i64 = 5 * 60;
+
+// Cookie names
+
+// Stores the session cookie that provides access to authentication protected routes
+static AUTH_COOKIE: &str = "auth";
+
+// Store the return path to send the user to after successful authentication
+static AUTH_RETURN_COOKIE: &str = "after_auth";
+
+// Stores the csrf token for verifying authentication returns
+static AUTH_CSRF: &str = "auth_csrf";
 
 // Client authorization cookie. Internally stores an expiration date that is checked per request
 #[derive(Deserialize, Serialize)]
@@ -63,12 +77,43 @@ pub struct AuthFields {
     id_token: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+impl AuthFields {
+
+    // Extract the id token returned from Google which provides identifying information on the
+    // authenticated user
+    fn token(&self) -> anyhow::Result<IdToken> {
+        // Extract the id token returned from Google which provides identifying information on the
+        // authenticated user
+        let parts = self.id_token.split('.').collect::<Vec<_>>();
+
+        let token_part = parts.get(1).ok_or_else(|| anyhow!("OAuth response is missing an id token"))?;
+        let decoded = URL_SAFE_NO_PAD.decode(token_part)?;
+        let token = decoded.to_str()?;
+        let id_token: IdToken = serde_json::from_str(token)?;
+
+        Ok(id_token)
+    }
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct IdToken {
     hd: String,
     email: String,
     email_verified: bool,
     sub: String,
+}
+
+impl IdToken {
+
+    // Ensure that for the identified user:
+    //   1. The email address belongs to the configured domain
+    //   2. The email domain is set to the configured domain
+    //   3. The IdP reports the email address as verified
+    fn authorized(&self, valid_domain: &str) -> bool {
+        self.email.ends_with(valid_domain)
+            && self.hd == valid_domain
+            && self.email_verified
+    }
 }
 
 impl ExtraTokenFields for AuthFields {}
@@ -82,21 +127,10 @@ pub(super) async fn authorize(
     Query(query): Query<AuthParams>,
     Extension(config): Extension<Arc<Config>>,
     Extension(client): Extension<Arc<AuthClient>>,
-    mut jar: SignedCookieJar,
+    jar: SignedCookieJar,
 ) -> Result<impl IntoResponse> {
-
-    // Verify the return state and delete the token cookie
-    let csrf_check = jar.get("auth_csrf").map(|cookie| {
-        trace!(state = ?query.state, token = ?cookie.value(), "Test csrf token");
-        cookie.value() == query.state
-    }).unwrap_or(false);
-    jar = jar.remove(Cookie::named("auth_csrf"));
-
-    // Attempt to extract the redirect path from a separate cookie, or redirect to the index
-    // otherwise. This is done early so that it can be deleted
-    let return_cookie = jar.get("after_auth");
-    let return_to = return_cookie.as_ref().map(|cookie| cookie.value()).unwrap_or("/");
-    jar = jar.remove(Cookie::named("after_auth"));
+    let (csrf_check, jar) = check_csrf(jar, &query.state);
+    let (return_to, mut jar) = extract_return(jar);
 
     if !csrf_check {
         return Ok((jar, Redirect::to("/")).into_response())
@@ -109,45 +143,21 @@ pub(super) async fn authorize(
         .await
         .map_err(internal_error)?;
 
-    // Extract the id token returned from Google which provides identifying information on the
-    // authenticated user
-    let parts = resp.extra_fields().id_token.split('.').collect::<Vec<_>>();
-
-    let token_part = parts.get(1).ok_or_else(|| anyhow!("OAuth response is missing an id token")).map_err(internal_error)?;
-    let decoded = URL_SAFE_NO_PAD.decode(token_part).map_err(internal_error)?;
-    let token = decoded.to_str().map_err(internal_error)?;
-    let id_token: IdToken = serde_json::from_str(token).map_err(internal_error)?;
-
-    // Ensure that for the authenticated user:
-    //   1. The email address belongs to the configured domain
-    //   2. The email domain is set to the configured domain
-    //   3. The IdP reports the email address as verified
-    let authorized = id_token.email.ends_with(&config.oauth_domain)
-        && id_token.hd == config.oauth_domain
-        && id_token.email_verified;
+    let id_token = resp.extra_fields().token().map_err(internal_error)?;
+    let authorized = id_token.authorized(&config.oauth_domain);
 
     if !authorized {
         return Ok(Redirect::to("/").into_response())
     }
 
-    // Generate a stateless session cookie that grants access for a static duration. After which the
-    // user will need to re-authenticate
-    let valid_until = Utc::now() + chrono::Duration::seconds(SESSION_DURATION);
-    let value = AuthCookie { valid_until };
-    let serialized = serde_json::to_string(&value).map_err(internal_error)?;
-
-    // Generate the actual session cookie and set its expiration to make the embedded value
-    let cookie_expiration = Expiration::from(OffsetDateTime::now_utc()).map(|t| t + time::Duration::seconds(SESSION_DURATION));
-    let mut session_cookie = Cookie::new(config.session_cookie.clone(), serialized);
-    session_cookie.set_expires(cookie_expiration);
-    jar = jar.add(session_cookie);
+    jar = jar.add(create_authorization_cookie(SESSION_DURATION).map_err(internal_error)?);
 
     info!(?id_token.sub, "Authorized oauth login");
 
-    Ok((jar, Redirect::to(return_to)).into_response())
+    Ok((jar, Redirect::to(&return_to)).into_response())
 }
 
-pub(super) async fn login(
+pub(super) async fn authenticate(
     Extension(client): Extension<Arc<AuthClient>>,
     mut jar: SignedCookieJar,
 ) -> impl IntoResponse {
@@ -156,37 +166,113 @@ pub(super) async fn login(
         .url();
 
     // Store a crsf token for verifying the return response
-    jar = jar.add(Cookie::new("auth_csrf", csrf.secret().clone()));
+    jar = jar.add(create_csrf_cookie(&csrf.secret(), CSRF_DURATION));
 
     (jar, Redirect::to(&url.to_string()))
 }
 
+pub(super) async fn login() -> impl IntoResponse {
+    StatusCode::OK
+}
 
 // Log the user out if they are logged in. This will attempt to delete all state cookies independent
 // of the user being logged in.
 pub(super) async fn logout(
-    Extension(config): Extension<Arc<Config>>,
-    mut jar: SignedCookieJar,
+    jar: SignedCookieJar,
 ) -> impl IntoResponse {
-
-    // Delete any existing state cookies
-    jar = jar.remove(Cookie::named(config.session_cookie.clone()));
-    jar = jar.remove(Cookie::named("auth_crsf"));
-    jar = jar.remove(Cookie::named("after_auth"));
-
-    (jar, Redirect::to("/"))
+    (clear_state_cookies(jar), Redirect::to("/"))
 }
 
 // Check if the request is coming from an authorized user.
-pub(super) async fn authenticated<B>(req: Request<B>, next: Next<B>) -> Result<Response, StatusCode> {
-    let extensions = req.extensions();
-    let config = extensions.get::<Arc<Config>>().unwrap();
-    
-    let key = Key::from(config.session_key.as_bytes());
-    let mut jar = SignedCookieJar::from_headers(req.headers(), key);
+pub(super) async fn authorized<B>(req: Request<B>, next: Next<B>) -> Result<Response, StatusCode> {
+    let config = req.extensions().get::<Arc<Config>>().unwrap();
+    let mut jar = get_jar_from_request(&req);
 
-    let is_authenticated = jar
-        .get(&config.session_cookie)
+    if !config.authentication_enabled || has_valid_cookie(&jar) {
+        Ok(next.run(req).await)
+    } else {
+        // Delete any existing auth cookies
+        jar = clear_state_cookies(jar);
+        jar = jar.add(create_return_cookie(&req));
+
+        Ok((jar, Redirect::to("/login")).into_response())
+    }
+}
+
+// Create a cookie for storing the return path that a user should be redirected to after login
+fn create_return_cookie<B>(req: &Request<B>) -> Cookie<'static> {
+    let mut return_to = Cookie::new(AUTH_RETURN_COOKIE, req.uri().path_and_query().map(|path| path.to_string()).unwrap_or("/".to_string()));
+    return_to.set_path("/");
+    return_to
+}
+
+fn create_csrf_cookie(value: &str, duration: i64) -> Cookie<'static> {
+    let mut cookie = Cookie::new(AUTH_CSRF, value.to_string());
+    cookie.set_path("/");
+
+    let expiration = Expiration::from(OffsetDateTime::now_utc()).map(|t| t + time::Duration::seconds(duration));
+    cookie.set_expires(expiration);
+
+    cookie
+}
+
+fn create_authorization_cookie(duration: i64) -> anyhow::Result<Cookie<'static>> {
+    // Generate a stateless session cookie that grants access for a static duration. After which the
+    // user will need to re-authenticate
+    let valid_until = Utc::now() + chrono::Duration::seconds(duration);
+    let value = AuthCookie { valid_until };
+    let serialized = serde_json::to_string(&value)?;
+
+    // Generate the actual session cookie and set its expiration to make the embedded value
+    let cookie_expiration = Expiration::from(OffsetDateTime::now_utc()).map(|t| t + time::Duration::seconds(duration));
+    let mut session_cookie = Cookie::new(AUTH_COOKIE.clone(), serialized);
+    session_cookie.set_expires(cookie_expiration);
+
+    Ok(session_cookie)
+}
+
+// Checks that a csrf token exists and has a matching value. Calling this function will consume the
+// csrf cookie, removing it from the jar
+fn check_csrf(mut jar: SignedCookieJar, value: &str) -> (bool, SignedCookieJar) {
+
+    // Verify the return state and delete the token cookie
+    let csrf_check = jar.get(AUTH_CSRF).map(|cookie| {
+        trace!(state = ?value, token = ?cookie.value(), "Test csrf token");
+        cookie.value() == value
+    }).unwrap_or(false);
+    jar = jar.remove(Cookie::named(AUTH_CSRF));
+
+    (csrf_check, jar)
+}
+
+
+// Extract a return path from the jar. Calling this function will consume the return path cookie,
+// removing it from the jar
+fn extract_return(mut jar: SignedCookieJar) -> (String, SignedCookieJar) {
+    let return_cookie = jar.get(AUTH_RETURN_COOKIE);
+    let return_to = return_cookie.map(|cookie| cookie.value().to_string()).unwrap_or("/".to_string());
+    jar = jar.remove(Cookie::named(AUTH_RETURN_COOKIE));
+
+    (return_to, jar)
+}
+
+// Delete any existing state cookies
+fn clear_state_cookies(mut jar: SignedCookieJar) -> SignedCookieJar {
+    jar = jar.remove(Cookie::named(AUTH_COOKIE));
+    jar = jar.remove(Cookie::named("auth_crsf"));
+    jar = jar.remove(Cookie::named(AUTH_RETURN_COOKIE));
+    jar
+}
+
+fn get_jar_from_request<B>(req: &Request<B>) -> SignedCookieJar {
+    let config = req.extensions().get::<Arc<Config>>().unwrap();
+    let key = Key::from(config.session_key.as_bytes());
+    SignedCookieJar::from_headers(req.headers(), key)
+}
+
+fn has_valid_cookie(jar: &SignedCookieJar) -> bool {
+    jar
+        .get(&AUTH_COOKIE)
         .and_then(|verified_cookie| {
             match serde_json::from_str::<AuthCookie>(verified_cookie.value()) {
                 Ok(value) => Some(value),
@@ -205,18 +291,105 @@ pub(super) async fn authenticated<B>(req: Request<B>, next: Next<B>) -> Result<R
 
             is_valid
         })
-        .unwrap_or(false);
+        .unwrap_or(false)
+}
 
-    if is_authenticated {
-        Ok(next.run(req).await)
-    } else {
-        // Delete any existing auth cookies
-        jar = jar.remove(Cookie::named(config.session_key.clone()));
+#[cfg(test)]
+mod tests {
+    use axum_extra::extract::{SignedCookieJar, cookie::Key};
+    use super::*;
 
-        let mut return_to = Cookie::new("after_auth", req.uri().path_and_query().map(|path| path.to_string()).unwrap_or("/".to_string()));
-        return_to.set_path("/");
-        jar = jar.add(return_to);
+    #[test]
+    fn test_empty_jar_is_invalid() {
+        let jar = SignedCookieJar::new(Key::generate());
+        assert!(!has_valid_cookie(&jar))
+    }
 
-        Ok((jar, Redirect::to("/login")).into_response())
+    #[test]
+    fn test_jar_with_expired_cookie_is_invalid() {
+        let mut jar = SignedCookieJar::new(Key::generate());
+        let cookie = create_authorization_cookie(-1000).expect("Failed to create expired cookie");
+        jar = jar.add(cookie);
+
+        assert!(!has_valid_cookie(&jar))
+    }
+
+    #[test]
+    fn test_jar_with_malformed_value_is_invalid() {
+        let mut jar = SignedCookieJar::new(Key::generate());
+        let mut cookie = create_authorization_cookie(1000).expect("Failed to create malformed cookie");
+        cookie.set_value("random malformed value");
+        jar = jar.add(cookie);
+
+        assert!(!has_valid_cookie(&jar))
+    }
+
+    #[test]
+    fn test_jar_with_valid_cookie() {
+        let mut jar = SignedCookieJar::new(Key::generate());
+        let cookie = create_authorization_cookie(1000).expect("Failed to create valid cookie");
+        jar = jar.add(cookie);
+
+        assert!(has_valid_cookie(&jar))
+    }
+
+    #[test]
+    fn test_clears_cookies() {
+        let mut jar = SignedCookieJar::new(Key::generate());
+        jar = jar.add(Cookie::new(AUTH_COOKIE, AUTH_COOKIE));
+        jar = jar.add(Cookie::new(AUTH_RETURN_COOKIE, AUTH_RETURN_COOKIE));
+        jar = jar.add(Cookie::new(AUTH_CSRF, AUTH_CSRF));
+
+        assert_eq!(3, jar.iter().count());
+
+        jar = clear_state_cookies(jar);
+
+        assert_eq!(1, jar.iter().count());
+    }
+
+    #[test]
+    fn test_decodes_id_token() {
+        let token = IdToken {
+            hd: "test.com".to_string(),
+            email: "foo@test.com".to_string(),
+            email_verified: true,
+            sub: "12345".to_string(),
+        };
+        let serialized = serde_json::to_string(&token).unwrap();
+        let fields = AuthFields {
+            id_token: format!("header.{}.signature", URL_SAFE_NO_PAD.encode(&serialized)),
+        };
+
+        assert_eq!(token, fields.token().unwrap());
+    }
+
+    #[test]
+    fn test_token_auth_checks() {
+        let mut token = IdToken {
+            hd: "fail.com".to_string(),
+            email: "foo@pass.com".to_string(),
+            email_verified: true,
+            sub: "12345".to_string(),
+        };
+
+        // Check domain
+        assert!(!token.authorized("pass.com"));
+
+        token.hd = "pass.com".to_string();
+        token.email = "foo@fail.com".to_string();
+
+        // Check email
+        assert!(!token.authorized("pass.com"));
+
+        token.email = "foo@pass.com".to_string();
+        token.email_verified = false;
+
+        // Check verified
+        assert!(!token.authorized("pass.com"));
+
+        token.email_verified = true;
+
+        // Check all
+        assert!(token.authorized("pass.com"));
     }
 }
