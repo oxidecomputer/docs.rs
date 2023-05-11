@@ -1,5 +1,5 @@
 use crate::error::Result;
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, Context};
 use rustwide::{cmd::Command, Toolchain, Workspace};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -14,6 +14,7 @@ impl CargoMetadata {
         workspace: &Workspace,
         toolchain: &Toolchain,
         source_dir: &Path,
+        root_name: Option<&str>,
     ) -> Result<Self> {
         let res = Command::new(workspace, toolchain.cargo())
             .args(&["metadata", "--format-version", "1"])
@@ -23,11 +24,11 @@ impl CargoMetadata {
         let [metadata] = res.stdout_lines() else {
             bail!("invalid output returned by `cargo metadata`")
         };
-        Self::load_from_metadata(metadata)
+        Self::load_from_metadata(metadata, root_name)
     }
 
     #[cfg(test)]
-    pub(crate) fn load_from_host_path(source_dir: &Path) -> Result<Self> {
+    pub(crate) fn load_from_host_path(source_dir: &Path, root_name: Option<&str>) -> Result<Self> {
         let res = std::process::Command::new("cargo")
             .args(["metadata", "--format-version", "1", "--offline"])
             .current_dir(source_dir)
@@ -37,23 +38,46 @@ impl CargoMetadata {
             let stderr = std::str::from_utf8(&res.stderr).unwrap_or("");
             bail!("error returned by `cargo metadata`: {status}\n{stderr}")
         }
-        Self::load_from_metadata(std::str::from_utf8(&res.stdout)?)
+        Self::load_from_metadata(std::str::from_utf8(&res.stdout)?, root_name)
     }
 
-    pub(crate) fn load_from_metadata(metadata: &str) -> Result<Self> {
+    pub(crate) fn load_from_metadata(metadata: &str, root_name: Option<&str>) -> Result<Self> {
         let metadata = serde_json::from_str::<DeserializedMetadata>(metadata)?;
-        let root = metadata.resolve.root;
+        let root = match root_name {
+            Some(root_name) => metadata
+                .workspace_members
+                .iter()
+                .find(|member| member.starts_with(root_name))
+                .ok_or_else(|| anyhow!("Failed to find workspace member for {}", root_name))?,
+            None => metadata
+                .resolve
+                .root
+                .as_ref()
+                .ok_or_else(|| anyhow!("Missing default root"))?,
+        };
+
+        let mut root_package = metadata
+            .packages
+            .into_iter()
+            .find(|pkg| &pkg.id == root)
+            .context("metadata.packages missing root package")?;
+
+        // Reduce down the package targets to only the requested root
+        if let Some(root_name) = root_name {
+            root_package.targets.retain(|target| target.name == root_name);
+        }
+
         Ok(CargoMetadata {
-            root: metadata
-                .packages
-                .into_iter()
-                .find(|pkg| pkg.id == root)
-                .context("metadata.packages missing root package")?,
+            root: root_package
         })
     }
 
     pub(crate) fn root(&self) -> &Package {
         &self.root
+    }
+
+    pub(crate) fn root_mut(&mut self) -> &mut Package {
+        &mut self.root
     }
 }
 
@@ -134,11 +158,12 @@ pub(crate) struct Dependency {
 struct DeserializedMetadata {
     packages: Vec<Package>,
     resolve: DeserializedResolve,
+    workspace_members: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize)]
 struct DeserializedResolve {
-    root: String,
+    root: Option<String>,
     nodes: Vec<DeserializedResolveNode>,
 }
 
