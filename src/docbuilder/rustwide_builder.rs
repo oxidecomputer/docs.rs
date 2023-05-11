@@ -27,7 +27,7 @@ use rustwide::{AlternativeRegistry, Build, Crate, Toolchain, Workspace, Workspac
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 const USER_AGENT: &str = "docs.rs builder (https://github.com/rust-lang/docs.rs)";
 const COMPONENTS: &[&str] = &["llvm-tools-preview", "rustc-dev", "rustfmt"];
@@ -37,7 +37,17 @@ const DUMMY_CRATE_VERSION: &str = "1.0.0";
 pub enum PackageKind<'a> {
     Local(&'a Path),
     CratesIo,
+    GitHub { name: &'a str, url: &'a str },
     Registry(&'a str),
+}
+
+impl<'a> PackageKind<'a> {
+    pub fn published(&self) -> bool {
+        match self {
+            Self::GitHub { .. } => false,
+            _ => true,
+        }
+    }
 }
 
 pub struct RustwideBuilder {
@@ -314,12 +324,18 @@ impl RustwideBuilder {
 
     pub fn build_local_package(&mut self, path: &Path) -> Result<bool> {
         self.update_toolchain()?;
-        let metadata = CargoMetadata::load_from_rustwide(&self.workspace, &self.toolchain, path)
-            .map_err(|err| {
-                err.context(format!("failed to load local package {}", path.display()))
-            })?;
+        let metadata =
+            CargoMetadata::load_from_rustwide(&self.workspace, &self.toolchain, path, None)
+                .map_err(|err| {
+                    err.context(format!("failed to load local package {}", path.display()))
+                })?;
         let package = metadata.root();
         self.build_package(&package.name, &package.version, PackageKind::Local(path))
+    }
+
+    pub fn build_github_package(&mut self, name: &str, url: &str, branch: &str) -> Result<bool> {
+        self.update_toolchain()?;
+        self.build_package(name, &branch, PackageKind::GitHub { name, url })
     }
 
     pub fn build_package(
@@ -367,14 +383,19 @@ impl RustwideBuilder {
         let mut build_dir = self.workspace.build_dir(&format!("{name}-{version}"));
         build_dir.purge().map_err(FailureError::compat)?;
 
+        trace!("Determined build directory");
+
         let krate = match kind {
-            PackageKind::Local(path) => Crate::local(path),
+            PackageKind::Local(path) => Crate::local(path, name),
             PackageKind::CratesIo => Crate::crates_io(name, version),
+            PackageKind::GitHub { url, .. } => Crate::git_branch(url, name, version),
             PackageKind::Registry(registry) => {
                 Crate::registry(AlternativeRegistry::new(registry), name, version)
             }
         };
         krate.fetch(&self.workspace).map_err(FailureError::compat)?;
+
+        trace!("Fetched krate");
 
         let local_storage = tempfile::Builder::new()
             .prefix(queue_builder::TEMPDIR_PREFIX)
@@ -384,6 +405,8 @@ impl RustwideBuilder {
             .build(&self.toolchain, &krate, self.prepare_sandbox(&limits))
             .run(|build| {
                 (|| -> Result<bool> {
+                    trace!("Running build");
+
                     use docsrs_metadata::BuildTargets;
 
                     let mut has_docs = false;
@@ -421,15 +444,28 @@ impl RustwideBuilder {
                         )?;
                     }
 
-                    if res.result.successful {
-                        if let Some(name) = res.cargo_metadata.root().library_name() {
-                            let host_target = build.host_target_dir();
-                            has_docs = host_target
-                                .join(default_target)
-                                .join("doc")
-                                .join(name)
-                                .is_dir();
+                    {
+                        let mut cargo_metadata = res.cargo_metadata.root_mut();
+
+                        // Inject the custom version into the package metadata if it differs from
+                        // the version computed from cargo
+                        if cargo_metadata.version != version {
+                            cargo_metadata.version = format!("{}-{}", cargo_metadata.version, version);
+                            trace!(?cargo_metadata.version, "Injected custom version");
                         }
+                    };
+
+                    let cargo_metadata = res.cargo_metadata.root();
+                    let repository = self.get_repo(cargo_metadata)?;
+
+                    if res.result.successful {
+                        let name = res.cargo_metadata.root().package_name();
+                        let host_target = build.host_target_dir();
+                        has_docs = host_target
+                            .join(default_target)
+                            .join("doc")
+                            .join(name)
+                            .is_dir();
                     }
 
                     let mut algs = HashSet::new();
@@ -447,7 +483,10 @@ impl RustwideBuilder {
                         // Then build the documentation for all the targets
                         // Limit the number of targets so that no one can try to build all 200000 possible targets
                         for target in other_targets.into_iter().take(limits.targets()) {
-                            debug!("building package {} {} for {}", name, version, target);
+                            debug!(
+                                "building package {} {} for {}",
+                                name, cargo_metadata.version, target
+                            );
                             self.build_target(
                                 target,
                                 build,
@@ -459,7 +498,7 @@ impl RustwideBuilder {
                         }
                         let (_, new_alg) = add_path_into_remote_archive(
                             &self.storage,
-                            &rustdoc_archive_path(name, version),
+                            &rustdoc_archive_path(name, &cargo_metadata.version),
                             local_storage.path(),
                             true,
                         )?;
@@ -488,22 +527,23 @@ impl RustwideBuilder {
                         self.metrics.non_library_builds.inc();
                     }
 
-                    let release_data = match self
-                        .index
-                        .api()
-                        .get_release_data(name, version)
-                        .with_context(|| {
-                            format!("could not fetch releases-data for {name}-{version}")
-                        }) {
-                        Ok(data) => data,
-                        Err(err) => {
-                            report_error(&err);
-                            ReleaseData::default()
+                    let release_data = if kind.published() {
+                        match self
+                            .index
+                            .api()
+                            .get_release_data(name, version)
+                            .with_context(|| {
+                                format!("could not fetch releases-data for {name}-{version}")
+                            }) {
+                            Ok(data) => data,
+                            Err(err) => {
+                                report_error(&err);
+                                ReleaseData::default()
+                            }
                         }
+                    } else {
+                        ReleaseData::default()
                     };
-
-                    let cargo_metadata = res.cargo_metadata.root();
-                    let repository = self.get_repo(cargo_metadata)?;
 
                     let release_id = add_package_into_database(
                         &mut conn,
@@ -529,12 +569,14 @@ impl RustwideBuilder {
                     let build_log_path = format!("build-logs/{build_id}/{default_target}.txt");
                     self.storage.store_one(build_log_path, res.build_log)?;
 
-                    // Some crates.io crate data is mutable, so we proactively update it during a release
-                    match self.index.api().get_crate_data(name) {
-                        Ok(crate_data) => {
-                            update_crate_data_in_database(&mut conn, name, &crate_data)?
+                    if kind.published() {
+                        // Some crates.io crate data is mutable, so we proactively update it during a release
+                        match self.index.api().get_crate_data(name) {
+                            Ok(crate_data) => {
+                                update_crate_data_in_database(&mut conn, name, &crate_data)?
+                            }
+                            Err(err) => warn!("{:#?}", err),
                         }
-                        Err(err) => warn!("{:#?}", err),
                     }
 
                     if res.result.successful {
@@ -649,11 +691,14 @@ impl RustwideBuilder {
         metadata: &Metadata,
         create_essential_files: bool,
     ) -> Result<FullBuildResult> {
-        let cargo_metadata = CargoMetadata::load_from_rustwide(
+        let res = CargoMetadata::load_from_rustwide(
             &self.workspace,
             &self.toolchain,
             &build.host_source_dir(),
-        )?;
+            Some(build.crate_name()),
+        );
+
+        let cargo_metadata = res?;
 
         let mut rustdoc_flags = vec![if create_essential_files {
             "--emit=unversioned-shared-resources,toolchain-shared-resources"
@@ -682,9 +727,15 @@ impl RustwideBuilder {
         };
 
         let successful = logging::capture(&storage, || {
-            self.prepare_command(build, target, metadata, limits, rustdoc_flags)
-                .and_then(|command| command.run().map_err(Error::from))
-                .is_ok()
+            self.prepare_command(
+                build,
+                target,
+                metadata,
+                limits,
+                rustdoc_flags,
+            )
+            .and_then(|command| command.run().map_err(Error::from))
+            .is_ok()
         });
 
         // For proc-macros, cargo will put the output in `target/doc`.
@@ -769,6 +820,8 @@ impl RustwideBuilder {
             cargo_args.push("--target".into());
             cargo_args.push(target.into());
         };
+
+        cargo_args.push(format!("-p{}", build.crate_name()));
 
         #[rustfmt::skip]
         const UNCONDITIONAL_ARGS: &[&str] = &[
