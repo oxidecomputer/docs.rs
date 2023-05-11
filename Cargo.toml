@@ -86,14 +86,16 @@ serde_json = "1.0"
 memmap2 = "0.5.0"
 
 # axum dependencies
-axum = { version = "0.6.1", features = ["headers"]}
-axum-extra = "0.7.0"
+axum = { version = "0.6.1", features = ["headers", "macros"] }
+axum-extra = { version = "0.7.0", features = ["cookie-signed"] }
 hyper = { version = "0.14.15", default-features = false }
+mime = "0.3.16"
+oauth2 = "4.3.0"
+percent-encoding = "2.2.0"
+time = "0.3"
 tower = "0.4.11"
 tower-service = "0.3.2"
 tower-http = { version = "0.4.0", features = ["fs", "trace", "timeout", "catch-panic"] }
-mime = "0.3.16"
-percent-encoding = "2.2.0"
 
 # NOTE: if you change this, also double-check that the comment in `queue_builder::remove_tempdirs` is still accurate.
 tempfile = "3.1.0"
@@ -129,10 +131,10 @@ aws-smithy-http = "0.55.1"
 indoc = "2.0.0"
 
 [build-dependencies]
-time = "0.3"
 gix = { version = "0.37.2", default-features = false }
 string_cache_codegen = "0.5.1"
 walkdir = "2"
+time = "0.3"
 anyhow = { version = "1.0.42", features = ["backtrace"] }
 grass = { version = "0.12.3", default-features = false }
 once_cell = { version = "1.4.0", features = ["parking_lot"] }
