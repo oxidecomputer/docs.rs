@@ -889,6 +889,20 @@ pub fn migrate(version: Option<Version>, conn: &mut Client) -> crate::error::Res
             "ALTER TYPE feature DROP ATTRIBUTE optional_dependency;",
             "ALTER TYPE feature ADD ATTRIBUTE optional_dependency BOOL;"
         ),
+        sql_migration!(
+            context,
+            39,
+            // description
+            "Support GitHub queue",
+            // upgrade query
+            "
+                ALTER TABLE queue ADD COLUMN github TEXT DEFAULT NULL;
+            ",
+            // downgrade query
+            "
+                ALTER TABLE queue DROP COLUMN github;
+            "
+        ),
     ];
 
     for migration in migrations {
