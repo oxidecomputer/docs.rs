@@ -240,7 +240,6 @@ impl Metadata {
 
     /// Return the arguments that should be passed to `cargo`.
     ///
-    /// This will always include `rustdoc --lib`.
     /// This will never include `--target`.
     ///
     /// You can pass `additional_args` to cargo, as well as `rustdoc_args` to `rustdoc`.
@@ -252,7 +251,7 @@ impl Metadata {
     /// However, rustdoc will see exactly the same code as it would on docs.rs, even counting `cfg`s.
     pub fn cargo_args(&self, additional_args: &[String], rustdoc_args: &[String]) -> Vec<String> {
         let mut cargo_args: Vec<String> =
-            vec!["rustdoc".into(), "--lib".into(), "-Zrustdoc-map".into()];
+            vec!["rustdoc".into(), "-Zrustdoc-map".into()];
 
         if let Some(features) = &self.features {
             cargo_args.push("--features".into());
