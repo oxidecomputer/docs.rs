@@ -743,7 +743,7 @@ mod test {
         "#;
 
         std::fs::write(dir.path().join("Cargo.toml"), [base, extra].concat())?;
-        let metadata = CargoMetadata::load_from_host_path(dir.path())?;
+        let metadata = CargoMetadata::load_from_host_path(dir.path(), None)?;
         let features = super::get_features(metadata.root());
         assert_eq!(features, expected.as_ref());
 
