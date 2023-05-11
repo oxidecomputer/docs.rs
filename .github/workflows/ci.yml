@@ -8,6 +8,7 @@ on:
 
 env:
   RUST_BACKTRACE: 1
+  AUTH_REQUIRED: false
   DOCSRS_PREFIX: ignored/cratesfyi-prefix
   DOCSRS_DATABASE_URL: postgresql://cratesfyi:password@localhost:15432
   DOCSRS_LOG: docs_rs=debug,rustwide=info

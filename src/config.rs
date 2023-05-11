@@ -211,13 +211,13 @@ impl Config {
             disable_memory_limit: env("DOCSRS_DISABLE_MEMORY_LIMIT", false)?,
 
             authentication_enabled: require_env("AUTH_REQUIRED")?,
-            session_key: require_env("SESSION_KEY")?,
-            oauth_domain: require_env("OAUTH_DOMAIN")?,
-            oauth_client_id: require_env("OAUTH_CLIENT_ID")?,
-            oauth_client_secret: require_env("OAUTH_CLIENT_SECRET")?,
-            oauth_auth_url: require_env("OAUTH_URL")?,
-            oauth_token_url: require_env("TOKEN_URL")?,
-            oauth_redirect_url: require_env("REDIRECT_URL")?,
+            session_key: env("SESSION_KEY", String::new())?,
+            oauth_domain: env("OAUTH_DOMAIN", String::new())?,
+            oauth_client_id: env("OAUTH_CLIENT_ID", String::new())?,
+            oauth_client_secret: env("OAUTH_CLIENT_SECRET", String::new())?,
+            oauth_auth_url: env("OAUTH_URL", String::new())?,
+            oauth_token_url: env("TOKEN_URL", String::new())?,
+            oauth_redirect_url: env("REDIRECT_URL", String::new())?,
         })
     }
 }
