@@ -4,7 +4,7 @@ use crate::{
     db::Pool,
     repositories::RepositoryStatsUpdater,
     storage::rustdoc_archive_path,
-    utils::{self, spawn_blocking},
+    utils::{self, get_crate_priority, spawn_blocking},
     web::{
         axum_cached_redirect, axum_parse_uri_with_params,
         cache::CachePolicy,
@@ -18,13 +18,14 @@ use crate::{
         page::TemplateData,
         MatchSemver, MetaData,
     },
-    Config, Metrics, Storage, RUSTDOC_STATIC_STORAGE_PREFIX,
+    BuildQueue, Config, Metrics, Storage, RUSTDOC_STATIC_STORAGE_PREFIX,
 };
 use anyhow::{anyhow, Context as _};
 use axum::{
     extract::{Extension, Path, Query},
     http::{StatusCode, Uri},
     response::{Html, IntoResponse, Response as AxumResponse},
+    Json,
 };
 use lol_html::errors::RewritingError;
 use once_cell::sync::Lazy;
@@ -34,6 +35,8 @@ use std::{
     sync::Arc,
 };
 use tracing::{debug, instrument, trace};
+
+use super::error::internal_error;
 
 static DOC_RUST_LANG_ORG_REDIRECTS: Lazy<HashMap<&str, &str>> = Lazy::new(|| {
     HashMap::from([
@@ -684,6 +687,57 @@ pub(crate) async fn rustdoc_html_server_handler(
         .await?
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct QueuePayload {
+    name: String,
+    version: String,
+    registry: Option<String>,
+    github: Option<String>,
+}
+
+/// Add a crate to the build queue that is hosted on either a GitHub repository or a crate registry.
+/// If neither is provided, then it is assumed that the crate should be pulled from the crates.io
+/// registry.
+#[allow(clippy::too_many_arguments)]
+#[instrument(skip_all)]
+pub(crate) async fn add_to_queue(
+    Extension(pool): Extension<Pool>,
+    Extension(queue): Extension<Arc<BuildQueue>>,
+    Json(payload): Json<QueuePayload>,
+) -> axum::response::Result<axum::response::Response> {
+    spawn_blocking({
+        let pool = pool.clone();
+
+        move || {
+            let mut conn = pool.get()?;
+
+            let priority = get_crate_priority(&mut conn, &payload.name)?;
+
+            if let Some(github_url) = &payload.github {
+                queue.add_github_crate(
+                    &payload.name,
+                    &payload.version,
+                    priority,
+                    github_url.as_str(),
+                )?
+            } else if let Some(registry) = &payload.registry {
+                queue.add_crate(
+                    &payload.name,
+                    &payload.version,
+                    priority,
+                    Some(registry.as_str()),
+                )?
+            } else {
+                queue.add_crate(&payload.name, &payload.version, priority, None)?
+            };
+
+            Ok(StatusCode::ACCEPTED.into_response())
+        }
+    })
+    .await
+    .map_err(internal_error)
+}
+
 /// Checks whether the given path exists.
 /// The crate's `target_name` is used to confirm whether a platform triple is part of the path.
 ///
@@ -756,12 +810,21 @@ pub(crate) async fn target_redirect_handler(
     Extension(updater): Extension<Arc<RepositoryStatsUpdater>>,
 ) -> AxumResult<impl IntoResponse> {
     let release_found = match_version_axum(&pool, &name, Some(&version)).await?;
+    trace!(?release_found, "Found redirect target");
+
     let (version, version_or_latest, is_latest_url) = match release_found.version {
         MatchSemver::Exact((version, _)) => (version.clone(), version, false),
         MatchSemver::Latest((version, _)) => (version, "latest".to_string(), true),
         // semver matching not supported here
-        MatchSemver::Semver(_) => return Err(AxumNope::VersionNotFound),
+        MatchSemver::Semver((version, _)) => (version.clone(), version, false),
     };
+
+    trace!(
+        ?version,
+        ?version_or_latest,
+        ?is_latest_url,
+        "Decomposed version"
+    );
 
     let crate_details = spawn_blocking({
         let name = name.clone();
@@ -780,6 +843,8 @@ pub(crate) async fn target_redirect_handler(
     })
     .await?
     .ok_or(AxumNope::VersionNotFound)?;
+
+    trace!(?crate_details, "Collected crate details");
 
     // We're trying to find the storage location
     // for the requested path in the target-redirect.
@@ -821,6 +886,8 @@ pub(crate) async fn target_redirect_handler(
         let pieces: Vec<_> = storage_location_for_path.split('/').collect();
         path_for_version(&pieces, &crate_details)
     };
+
+    trace!(?redirect_path, ?query_args, "Computed redirect path");
 
     Ok(axum_cached_redirect(
         axum_parse_uri_with_params(
