@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use tracing::error;
 
 use crate::{
     storage::PathNotFoundError,
@@ -6,7 +7,7 @@ use crate::{
 };
 use axum::{
     http::StatusCode,
-    response::{IntoResponse, Response as AxumResponse},
+    response::{IntoResponse, Response as AxumResponse, ErrorResponse},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -132,6 +133,12 @@ impl From<anyhow::Error> for AxumNope {
 }
 
 pub(crate) type AxumResult<T> = Result<T, AxumNope>;
+
+pub fn internal_error(err: impl Into<anyhow::Error>) -> ErrorResponse {
+    let err: anyhow::Error = err.into();
+    error!(?err, "Internal server error");
+    ErrorResponse::from((StatusCode::INTERNAL_SERVER_ERROR, format!("{}", err)))
+}
 
 #[cfg(test)]
 mod tests {

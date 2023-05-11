@@ -5,10 +5,11 @@ pub mod page;
 use crate::utils::get_correct_docsrs_style_file;
 use crate::utils::spawn_blocking;
 use anyhow::{anyhow, bail, Context as _, Result};
-use axum_extra::middleware::option_layer;
+use axum_extra::{middleware::option_layer, extract::cookie::Key};
 use serde_json::Value;
-use tracing::{info, instrument};
+use tracing::{info, instrument, trace};
 
+mod auth;
 mod build_details;
 mod builds;
 pub(crate) mod cache;
@@ -51,6 +52,8 @@ use std::{borrow::Cow, net::SocketAddr, sync::Arc};
 use tower::ServiceBuilder;
 use tower_http::{catch_panic::CatchPanicLayer, timeout::TimeoutLayer, trace::TraceLayer};
 use url::form_urlencoded;
+
+use self::auth::auth_client;
 
 // from https://github.com/servo/rust-url/blob/master/url/src/parser.rs
 // and https://github.com/tokio-rs/axum/blob/main/axum-extra/src/lib.rs
@@ -126,6 +129,8 @@ fn match_version(
     name: &str,
     input_version: Option<&str>,
 ) -> Result<MatchVersion, AxumNope> {
+    trace!(?name, ?input_version, "Find crate version");
+
     let (crate_id, corrected_name) = {
         let rows = conn
             .query(
@@ -135,6 +140,8 @@ fn match_version(
                 &[&name],
             )
             .context("error fetching crate")?;
+
+        trace!(?rows, "Found matches");
 
         let row = rows.get(0).ok_or(AxumNope::CrateNotFound)?;
 
@@ -160,6 +167,8 @@ fn match_version(
     // version is an Option<&str> from router::Router::get, need to decode first.
     // Any encoding errors we treat as _any version_.
     let req_version = input_version.unwrap_or("*");
+
+    trace!(?req_version, parsed = ?Version::parse(req_version), ?releases, "Search for exact match");
 
     // first check for exact match, we can't expect users to use semver in query
     if let Ok(parsed_req_version) = Version::parse(req_version) {
@@ -192,6 +201,8 @@ fn match_version(
     // starting here, we only look at non-yanked releases
     let releases: Vec<_> = releases.iter().filter(|r| !r.yanked).collect();
 
+    trace!(?req_semver, "Try to match semver releases");
+
     // try to match the version in all un-yanked releases.
     if let Some(release) = releases
         .iter()
@@ -209,10 +220,14 @@ fn match_version(
         });
     }
 
+    trace!("No matching non-prerelease targets");
+
     // semver `*` does not match pre-releases.
     // When someone wants the latest release and we have only pre-releases
     // just return the latest prerelease.
     if req_semver == VersionReq::STAR {
+        trace!("Return latest prerelease");
+
         return releases
             .first()
             .map(|release| MatchVersion {
@@ -262,13 +277,18 @@ async fn log_timeouts_to_sentry<B>(req: AxumRequest<B>, next: Next<B>) -> AxumRe
     response
 }
 
+#[derive(Clone)]
+pub struct AppState {
+    pub(crate) session_key: Key,
+}
+
 #[instrument(skip_all)]
 pub(crate) fn build_axum_app(
     context: &dyn Context,
     template_data: Arc<TemplateData>,
 ) -> Result<AxumRouter, Error> {
     let config = context.config()?;
-    Ok(routes::build_axum_routes().layer(
+    Ok(routes::build_axum_routes(config.clone()).layer(
         // It’s recommended to use tower::ServiceBuilder to apply multiple middleware at once,
         // instead of calling Router::layer repeatedly:
         ServiceBuilder::new()
@@ -288,6 +308,7 @@ pub(crate) fn build_axum_app(
             .layer(Extension(context.config()?))
             .layer(Extension(context.storage()?))
             .layer(Extension(context.repository_stats_updater()?))
+            .layer(Extension(Arc::new(auth_client(config.clone())?)))
             .layer(Extension(template_data))
             .layer(middleware::from_fn(csp::csp_middleware))
             .layer(middleware::from_fn(

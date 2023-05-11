@@ -1,5 +1,8 @@
+use crate::Config;
+
 use super::{
-    cache::CachePolicy, error::AxumNope, metrics::request_recorder, statics::build_static_router,
+    cache::CachePolicy, error::AxumNope, metrics::request_recorder, rustdoc::add_to_queue,
+    statics::build_static_router, auth::{logout, authorize, authenticated, login}, AppState,
 };
 use axum::{
     handler::Handler as AxumHandler,
@@ -7,11 +10,12 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Redirect},
     routing::get,
+    routing::post,
     routing::MethodRouter,
     Router as AxumRouter,
 };
-use axum_extra::routing::RouterExt;
-use std::convert::Infallible;
+use axum_extra::{routing::RouterExt, extract::cookie::Key};
+use std::{convert::Infallible, sync::Arc};
 use tracing::{debug, instrument};
 
 const INTERNAL_PREFIXES: &[&str] = &["-", "about", "crate", "releases", "sitemap.xml"];
@@ -77,7 +81,11 @@ async fn block_blacklisted_prefixes_middleware<B>(
     next.run(request).await
 }
 
-pub(super) fn build_axum_routes() -> AxumRouter {
+pub(super) fn build_axum_routes(config: Arc<Config>) -> AxumRouter {
+    let state = AppState {
+        session_key: Key::from(config.session_key.as_bytes()),
+    };
+
     // hint for naming axum routes:
     // when routes overlap, the route parameters at the same position
     // have to use the same name:
@@ -91,7 +99,7 @@ pub(super) fn build_axum_routes() -> AxumRouter {
     // - `/:name/:version/settings.html`
     // - `/:crate/:version/:target`
     //
-    AxumRouter::new()
+    let router: AxumRouter = AxumRouter::new()
         // Well known resources, robots.txt and favicon.ico support redirection, the sitemap.xml
         // must live at the site root:
         //   https://developers.google.com/search/reference/robots_txt#handling-http-result-codes
@@ -291,7 +299,15 @@ pub(super) fn build_axum_routes() -> AxumRouter {
             "/:name/:version/:target/*path",
             get_rustdoc(super::rustdoc::rustdoc_html_server_handler),
         )
-        .fallback(fallback)
+        .route("/queue", post(add_to_queue))
+        .route_layer(middleware::from_fn(authenticated))
+        .route("/login", get(login))
+        .route("/authorize", get(authorize))
+        .route("/logout", get(logout))
+        .with_state(state)
+        .fallback(fallback);
+
+    router
 }
 
 async fn fallback() -> impl IntoResponse {
