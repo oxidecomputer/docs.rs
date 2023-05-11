@@ -8,7 +8,7 @@ use crate::{Config, Index, Metrics, RustwideBuilder};
 use anyhow::Context;
 use fn_error_context::context;
 
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,6 +21,7 @@ pub(crate) struct QueuedCrate {
     pub(crate) version: String,
     pub(crate) priority: i32,
     pub(crate) registry: Option<String>,
+    pub(crate) github: Option<String>,
 }
 
 #[derive(Debug)]
@@ -89,6 +90,27 @@ impl BuildQueue {
         Ok(())
     }
 
+    #[context("error trying to add {name}-{version} ({github:?}) to build queue")]
+    pub fn add_github_crate(
+        &self,
+        name: &str,
+        version: &str,
+        priority: i32,
+        github: &str,
+    ) -> Result<()> {
+        self.db.get()?.execute(
+            "INSERT INTO queue (name, version, priority, github)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (name, version) DO UPDATE
+                SET priority = EXCLUDED.priority,
+                    github = EXCLUDED.github,
+                    attempt = 0
+            ;",
+            &[&name, &version, &priority, &github],
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn pending_count(&self) -> Result<usize> {
         Ok(self.pending_count_by_priority()?.values().sum::<usize>())
     }
@@ -128,7 +150,7 @@ impl BuildQueue {
 
     pub(crate) fn queued_crates(&self) -> Result<Vec<QueuedCrate>> {
         let query = self.db.get()?.query(
-            "SELECT id, name, version, priority, registry
+            "SELECT id, name, version, priority, registry, github
              FROM queue
              WHERE attempt < $1
              ORDER BY priority ASC, attempt ASC, id ASC",
@@ -143,6 +165,7 @@ impl BuildQueue {
                 version: row.get("version"),
                 priority: row.get("priority"),
                 registry: row.get("registry"),
+                github: row.get("github"),
             })
             .collect())
     }
@@ -179,7 +202,7 @@ impl BuildQueue {
         // available one.
         let to_process = match transaction
             .query_opt(
-                "SELECT id, name, version, priority, registry
+                "SELECT id, name, version, priority, registry, github
                  FROM queue
                  WHERE attempt < $1
                  ORDER BY priority ASC, attempt ASC, id ASC
@@ -193,10 +216,13 @@ impl BuildQueue {
                 version: row.get("version"),
                 priority: row.get("priority"),
                 registry: row.get("registry"),
+                github: row.get("github"),
             }) {
             Some(krate) => krate,
             None => return Ok(()),
         };
+
+        trace!(?to_process, "Found crate to process");
 
         let res = f(&to_process).with_context(|| {
             format!(
@@ -405,11 +431,16 @@ impl BuildQueue {
         self.process_next_crate(|krate| {
             processed = true;
 
-            let kind = krate
-                .registry
-                .as_ref()
-                .map(|r| PackageKind::Registry(r.as_str()))
-                .unwrap_or(PackageKind::CratesIo);
+            let kind = if let Some(github_url) = &krate.github {
+                PackageKind::GitHub {
+                    name: &krate.name,
+                    url: &github_url,
+                }
+            } else if let Some(registry) = &krate.registry {
+                PackageKind::Registry(registry)
+            } else {
+                PackageKind::CratesIo
+            };
 
             match retry(
                 || {
@@ -441,6 +472,8 @@ impl BuildQueue {
                 }
                 Ok(false) => {}
             }
+
+            trace!("Updated toolchain");
 
             builder.build_package(&krate.name, &krate.version, kind)?;
             Ok(())
