@@ -99,6 +99,16 @@ pub struct Config {
     pub(crate) build_cpu_limit: Option<u32>,
     pub(crate) include_default_targets: bool,
     pub(crate) disable_memory_limit: bool,
+
+    // Authentication params
+    pub(crate) session_cookie: String,
+    pub(crate) session_key: String,
+    pub(crate) oauth_domain: String,
+    pub(crate) oauth_client_id: String,
+    pub(crate) oauth_client_secret: String,
+    pub(crate) oauth_auth_url: String,
+    pub(crate) oauth_token_url: String,
+    pub(crate) oauth_redirect_url: String,
 }
 
 impl Config {
@@ -199,6 +209,15 @@ impl Config {
             build_cpu_limit: maybe_env("DOCSRS_BUILD_CPU_LIMIT")?,
             include_default_targets: env("DOCSRS_INCLUDE_DEFAULT_TARGETS", true)?,
             disable_memory_limit: env("DOCSRS_DISABLE_MEMORY_LIMIT", false)?,
+
+            session_cookie: require_env("SESSION_COOKIE")?,
+            session_key: require_env("SESSION_KEY")?,
+            oauth_domain: require_env("OAUTH_DOMAIN")?,
+            oauth_client_id: require_env("OAUTH_CLIENT_ID")?,
+            oauth_client_secret: require_env("OAUTH_CLIENT_SECRET")?,
+            oauth_auth_url: require_env("OAUTH_URL")?,
+            oauth_token_url: require_env("TOKEN_URL")?,
+            oauth_redirect_url: require_env("REDIRECT_URL")?,
         })
     }
 }
