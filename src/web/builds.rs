@@ -290,7 +290,7 @@ mod tests {
                     &"foo",
                     &3072i64,
                     &(Duration::hours(2).num_seconds() as i32),
-                    &1,
+                    &1_i32,
                 ],
             )?;
 
