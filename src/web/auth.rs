@@ -133,7 +133,7 @@ pub(super) async fn authorize(
     let (return_to, mut jar) = extract_return(jar);
 
     if !csrf_check {
-        return Ok((jar, Redirect::to("/")).into_response())
+        return Ok((jar, Redirect::to("/login-failure")).into_response())
     }
 
     // State has been validated, so try to exchange the authorization code for an access token
@@ -147,7 +147,7 @@ pub(super) async fn authorize(
     let authorized = id_token.authorized(&config.oauth_domain);
 
     if !authorized {
-        return Ok(Redirect::to("/").into_response())
+        return Ok(Redirect::to("/login-failure").into_response())
     }
 
     jar = jar.add(create_authorization_cookie(SESSION_DURATION).map_err(internal_error)?);
@@ -195,7 +195,7 @@ pub(super) async fn authorized<B>(req: Request<B>, next: Next<B>) -> Result<Resp
         jar = clear_state_cookies(jar);
         jar = jar.add(create_return_cookie(&req));
 
-        Ok((jar, Redirect::to("/login")).into_response())
+        Ok((jar, Redirect::to("/authenticate")).into_response())
     }
 }
 

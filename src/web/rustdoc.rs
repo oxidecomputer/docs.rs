@@ -339,7 +339,7 @@ impl RustdocPage {
 
         Ok((
             StatusCode::OK,
-            (!is_latest_url).then_some([("X-Robots-Tag", "noindex")]),
+            [("X-Robots-Tag", "noindex")],
             Extension(if is_latest_url {
                 CachePolicy::ForeverInCdn
             } else {
