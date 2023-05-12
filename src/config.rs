@@ -1,7 +1,10 @@
-use crate::{cdn::CdnKind, storage::StorageKind};
 use anyhow::{anyhow, bail, Context, Result};
+use axum_extra::extract::cookie::Key;
+use base64::{Engine, prelude::BASE64_STANDARD_NO_PAD};
 use std::{env::VarError, error::Error, path::PathBuf, str::FromStr, time::Duration};
 use tracing::trace;
+
+use crate::{cdn::CdnKind, storage::StorageKind};
 
 #[derive(Debug)]
 pub struct Config {
@@ -211,7 +214,7 @@ impl Config {
             disable_memory_limit: env("DOCSRS_DISABLE_MEMORY_LIMIT", false)?,
 
             authentication_enabled: require_env("AUTH_REQUIRED")?,
-            session_key: env("SESSION_KEY", String::new())?,
+            session_key: env("SESSION_KEY", generate_key_value())?,
             oauth_domain: env("OAUTH_DOMAIN", String::new())?,
             oauth_client_id: env("OAUTH_CLIENT_ID", String::new())?,
             oauth_client_secret: env("OAUTH_CLIENT_SECRET", String::new())?,
@@ -220,6 +223,10 @@ impl Config {
             oauth_redirect_url: env("REDIRECT_URL", String::new())?,
         })
     }
+}
+
+fn generate_key_value() -> String {
+    BASE64_STANDARD_NO_PAD.encode(Key::generate().master())
 }
 
 fn env<T>(var: &str, default: T) -> Result<T>

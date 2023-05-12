@@ -308,7 +308,12 @@ pub(crate) fn build_axum_app(
             .layer(Extension(context.config()?))
             .layer(Extension(context.storage()?))
             .layer(Extension(context.repository_stats_updater()?))
-            .layer(Extension(Arc::new(auth_client(config.clone())?)))
+            .layer(option_layer(if config.authentication_enabled {
+                    Some(Extension(Arc::new(auth_client(config.clone())?)))
+                } else {
+                    None
+                }
+            ))
             .layer(Extension(template_data))
             .layer(middleware::from_fn(csp::csp_middleware))
             .layer(middleware::from_fn(

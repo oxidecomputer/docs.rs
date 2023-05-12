@@ -46,7 +46,7 @@ impl FromRef<AppState> for Key {
 
 type AuthTokenResponse = StandardTokenResponse<AuthFields, BasicTokenType>;
 
-type AuthClient = Client<
+pub type AuthClient = Client<
     BasicErrorResponse,
     AuthTokenResponse,
     BasicTokenType,
