@@ -1,6 +1,8 @@
 use anyhow::{anyhow, bail, Context, Result};
 use axum_extra::extract::cookie::Key;
-use base64::{Engine, prelude::BASE64_STANDARD_NO_PAD};
+use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
+use github_app_authenticator::GitHubAppAuthenticator;
+use http::HeaderValue;
 use std::{env::VarError, error::Error, path::PathBuf, str::FromStr, time::Duration};
 use tracing::trace;
 
@@ -112,6 +114,11 @@ pub struct Config {
     pub(crate) oauth_auth_url: String,
     pub(crate) oauth_token_url: String,
     pub(crate) oauth_redirect_url: String,
+
+    // Webhook build params
+    pub(crate) wh_app_authenticator: GitHubAppAuthenticator,
+    pub(crate) wh_build_trigger: String,
+    pub(crate) wh_user_agent: String,
 }
 
 impl Config {
@@ -221,6 +228,14 @@ impl Config {
             oauth_auth_url: env("OAUTH_URL", String::new())?,
             oauth_token_url: env("TOKEN_URL", String::new())?,
             oauth_redirect_url: env("REDIRECT_URL", String::new())?,
+
+            wh_app_authenticator: GitHubAppAuthenticator::new(
+                env("WH_APP_ID", String::new())?.parse()?,
+                base64::decode(env("WH_APP_PRIVATE_KEY", String::new())?)?,
+                HeaderValue::from_str(&env("WH_APP_USER_AGENT", String::new())?)?,
+            ),
+            wh_build_trigger: env("WH_BUILD_TRIGGER", String::new())?,
+            wh_user_agent: env("WH_APP_USER_AGENT", String::new())?,
         })
     }
 }

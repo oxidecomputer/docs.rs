@@ -1,5 +1,5 @@
 use super::TemplateData;
-use crate::web::{csp::Csp, error::AxumNope};
+use crate::web::{branding::Branding, csp::Csp, error::AxumNope, site_features::SiteFeatures};
 use anyhow::Error;
 use axum::{
     body::{boxed, Body},
@@ -127,6 +127,8 @@ fn render_response(
     mut response: AxumResponse,
     templates: Arc<TemplateData>,
     csp_nonce: String,
+    branding: Branding,
+    site_features: SiteFeatures,
 ) -> BoxFuture<'static, AxumResponse> {
     async move {
         if let Some(render) = response.extensions_mut().remove::<DelayedTemplateRender>() {
@@ -136,6 +138,8 @@ fn render_response(
                 cpu_intensive_rendering,
             } = render;
             context.insert("csp_nonce", &csp_nonce);
+            context.insert("branding", &branding);
+            context.insert("site_features", &site_features);
 
             let rendered = if cpu_intensive_rendering {
                 templates
@@ -164,6 +168,8 @@ fn render_response(
                             AxumNope::InternalError(err).into_response(),
                             templates,
                             csp_nonce,
+                            branding,
+                            site_features,
                         )
                         .await;
                     }
@@ -201,5 +207,12 @@ pub(crate) async fn render_templates_middleware<B>(
 
     let response = next.run(req).await;
 
-    render_response(response, templates, csp_nonce).await
+    render_response(
+        response,
+        templates,
+        csp_nonce,
+        Branding::default(),
+        SiteFeatures::default(),
+    )
+    .await
 }

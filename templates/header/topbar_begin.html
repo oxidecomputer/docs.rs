@@ -13,9 +13,9 @@
                   %} {% if metadata.yanked %}yanked{% endif %}">
 
                 {# The top-left logo and name #}
-                <a href="/" class="pure-menu-heading pure-menu-link docsrs-logo" aria-label="Docs.rs">
-                    <span title="Docs.rs">{{ "cubes" | fas }}</span>
-                    <span class="title">Docs.rs</span>
+                <a href="/" class="pure-menu-heading pure-menu-link docsrs-logo" aria-label="{{ branding.site_title }}">
+                    {%- if branding.use_logo -%}<span title="Docs.rs">{{ "cubes" | fas }}</span>{%- endif -%}
+                    <span class="title">{{ branding.site_title }}</span>
                 </a>{#
 
                 #}

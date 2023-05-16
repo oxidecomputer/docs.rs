@@ -450,7 +450,8 @@ impl RustwideBuilder {
                         // Inject the custom version into the package metadata if it differs from
                         // the version computed from cargo
                         if cargo_metadata.version != version {
-                            cargo_metadata.version = format!("{}-{}", cargo_metadata.version, version);
+                            cargo_metadata.version =
+                                format!("{}-{}", cargo_metadata.version, version);
                             trace!(?cargo_metadata.version, "Injected custom version");
                         }
                     };
@@ -727,15 +728,9 @@ impl RustwideBuilder {
         };
 
         let successful = logging::capture(&storage, || {
-            self.prepare_command(
-                build,
-                target,
-                metadata,
-                limits,
-                rustdoc_flags,
-            )
-            .and_then(|command| command.run().map_err(Error::from))
-            .is_ok()
+            self.prepare_command(build, target, metadata, limits, rustdoc_flags)
+                .and_then(|command| command.run().map_err(Error::from))
+                .is_ok()
         });
 
         // For proc-macros, cargo will put the output in `target/doc`.

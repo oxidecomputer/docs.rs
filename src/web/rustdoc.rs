@@ -36,7 +36,7 @@ use std::{
 };
 use tracing::{debug, instrument, trace};
 
-use super::error::internal_error;
+use super::{branding::Branding, error::internal_error, site_features::SiteFeatures};
 
 static DOC_RUST_LANG_ORG_REDIRECTS: Lazy<HashMap<&str, &str>> = Lazy::new(|| {
     HashMap::from([
@@ -319,7 +319,9 @@ impl RustdocPage {
         let is_latest_url = self.is_latest_url;
 
         // Build the page of documentation
-        let ctx = tera::Context::from_serialize(self).context("error creating tera context")?;
+        let mut ctx = tera::Context::from_serialize(self).context("error creating tera context")?;
+        ctx.insert("branding", &Branding::default());
+        ctx.insert("site_features", &SiteFeatures::default());
 
         // Extract the head and body of the rustdoc file so that we can insert it into our own html
         // while logging OOM errors from html rewriting

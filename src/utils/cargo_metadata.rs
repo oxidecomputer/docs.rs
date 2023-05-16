@@ -64,12 +64,12 @@ impl CargoMetadata {
 
         // Reduce down the package targets to only the requested root
         if let Some(root_name) = root_name {
-            root_package.targets.retain(|target| target.name == root_name);
+            root_package
+                .targets
+                .retain(|target| target.name == root_name);
         }
 
-        Ok(CargoMetadata {
-            root: root_package
-        })
+        Ok(CargoMetadata { root: root_package })
     }
 
     pub(crate) fn root(&self) -> &Package {

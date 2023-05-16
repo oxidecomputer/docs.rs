@@ -5,11 +5,12 @@ pub mod page;
 use crate::utils::get_correct_docsrs_style_file;
 use crate::utils::spawn_blocking;
 use anyhow::{anyhow, bail, Context as _, Result};
-use axum_extra::{middleware::option_layer, extract::cookie::Key};
+use axum_extra::{extract::cookie::Key, middleware::option_layer};
 use serde_json::Value;
 use tracing::{info, instrument, trace};
 
 mod auth;
+mod branding;
 mod build_details;
 mod builds;
 pub(crate) mod cache;
@@ -18,6 +19,7 @@ mod csp;
 pub(crate) mod error;
 mod features;
 mod file;
+mod github_webhooks;
 mod headers;
 mod highlight;
 mod markdown;
@@ -25,6 +27,7 @@ pub(crate) mod metrics;
 mod releases;
 mod routes;
 mod rustdoc;
+mod site_features;
 mod sitemap;
 mod source;
 mod statics;
@@ -308,11 +311,10 @@ pub(crate) fn build_axum_app(
             .layer(Extension(context.config()?))
             .layer(Extension(context.storage()?))
             .layer(Extension(context.repository_stats_updater()?))
-            .layer(option_layer(if config.authentication_enabled {
-                    Some(Extension(Arc::new(auth_client(config.clone())?)))
-                } else {
-                    None
-                }
+            .layer(option_layer(
+                config
+                    .authentication_enabled
+                    .then_some(Extension(Arc::new(auth_client(config.clone())?))),
             ))
             .layer(Extension(template_data))
             .layer(middleware::from_fn(csp::csp_middleware))

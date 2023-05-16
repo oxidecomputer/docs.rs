@@ -1,8 +1,15 @@
 use crate::Config;
 
 use super::{
-    cache::CachePolicy, error::AxumNope, metrics::request_recorder, rustdoc::add_to_queue,
-    statics::build_static_router, auth::{logout, authorize, login, authenticate, authorized}, AppState,
+    auth::{authenticate, authorize, authorized, logout},
+    cache::CachePolicy,
+    error::AxumNope,
+    github_webhooks::github_webhook_handler,
+    metrics::request_recorder,
+    rustdoc::add_to_queue,
+    site_features::SiteFeatures,
+    statics::build_static_router,
+    AppState,
 };
 use axum::{
     handler::Handler as AxumHandler,
@@ -14,7 +21,7 @@ use axum::{
     routing::MethodRouter,
     Router as AxumRouter,
 };
-use axum_extra::{routing::RouterExt, extract::cookie::Key};
+use axum_extra::{extract::cookie::Key, routing::RouterExt};
 use std::{convert::Infallible, sync::Arc};
 use tracing::{debug, instrument};
 
@@ -86,6 +93,23 @@ pub(super) fn build_axum_routes(config: Arc<Config>) -> AxumRouter {
         session_key: Key::from(config.session_key.as_bytes()),
     };
 
+    let features = SiteFeatures::default();
+
+    let pubilc_routes: AxumRouter<AppState> = AxumRouter::new()
+        // Well known resources, robots.txt and favicon.ico support redirection
+        .route(
+            "/robots.txt",
+            get_static(|| async { Redirect::permanent("/-/static/robots.txt") }),
+        )
+        .route(
+            "/favicon.ico",
+            get_static(|| async { Redirect::permanent("/-/static/favicon.ico") }),
+        )
+        .nest("/-/static/", build_static_router())
+        .route("/authenticate", get(authenticate))
+        .route("/authorize", get(authorize))
+        .route("/logout", get(logout));
+
     // hint for naming axum routes:
     // when routes overlap, the route parameters at the same position
     // have to use the same name:
@@ -99,45 +123,11 @@ pub(super) fn build_axum_routes(config: Arc<Config>) -> AxumRouter {
     // - `/:name/:version/settings.html`
     // - `/:crate/:version/:target`
     //
-    let router: AxumRouter = AxumRouter::new()
+    let base_routes: AxumRouter<AppState> = AxumRouter::new()
         // Well known resources, robots.txt and favicon.ico support redirection, the sitemap.xml
         // must live at the site root:
         //   https://developers.google.com/search/reference/robots_txt#handling-http-result-codes
         //   https://support.google.com/webmasters/answer/183668?hl=en
-        .route(
-            "/robots.txt",
-            get_static(|| async { Redirect::permanent("/-/static/robots.txt") }),
-        )
-        .route(
-            "/favicon.ico",
-            get_static(|| async { Redirect::permanent("/-/static/favicon.ico") }),
-        )
-        .nest("/-/static/", build_static_router())
-        .route(
-            "/opensearch.xml",
-            get_static(|| async { Redirect::permanent("/-/static/opensearch.xml") }),
-        )
-        .route_with_tsr(
-            "/sitemap.xml",
-            get_internal(super::sitemap::sitemapindex_handler),
-        )
-        .route_with_tsr(
-            "/-/sitemap/:letter/sitemap.xml",
-            get_internal(super::sitemap::sitemap_handler),
-        )
-        .route_with_tsr(
-            "/about/builds",
-            get_internal(super::sitemap::about_builds_handler),
-        )
-        .route_with_tsr(
-            "/about/metrics",
-            get_internal(super::metrics::metrics_handler),
-        )
-        .route_with_tsr("/about", get_internal(super::sitemap::about_handler))
-        .route_with_tsr(
-            "/about/:subpage",
-            get_internal(super::sitemap::about_handler),
-        )
         .route("/", get_internal(super::releases::home_page))
         .route_with_tsr(
             "/releases",
@@ -182,10 +172,6 @@ pub(super) fn build_axum_routes(config: Arc<Config>) -> AxumRouter {
         .route_with_tsr(
             "/crate/:name/:version",
             get_internal(super::crate_details::crate_details_handler),
-        )
-        .route_with_tsr(
-            "/releases/feed",
-            get_static(super::releases::releases_feed_handler),
         )
         .route_with_tsr(
             "/releases/:owner",
@@ -299,16 +285,77 @@ pub(super) fn build_axum_routes(config: Arc<Config>) -> AxumRouter {
             "/:name/:version/:target/*path",
             get_rustdoc(super::rustdoc::rustdoc_html_server_handler),
         )
-        .route("/queue", post(add_to_queue))
         .route_layer(middleware::from_fn(authorized))
-        .route("/login", get(login))
-        .route("/authenticate", get(authenticate))
-        .route("/authorize", get(authorize))
-        .route("/logout", get(logout))
-        .with_state(state)
         .fallback(fallback);
 
-    router
+    let api_routes: AxumRouter<AppState> =
+        AxumRouter::new().route("/api/queue", post(add_to_queue));
+
+    let mut router: AxumRouter<AppState> = AxumRouter::new()
+        .merge(pubilc_routes)
+        .merge(base_routes)
+        .merge(api_routes);
+
+    if features.about {
+        router = router.merge(
+            AxumRouter::new()
+                .route_with_tsr(
+                    "/about/builds",
+                    get_internal(super::sitemap::about_builds_handler),
+                )
+                .route_with_tsr(
+                    "/about/metrics",
+                    get_internal(super::metrics::metrics_handler),
+                )
+                .route_with_tsr("/about", get_internal(super::sitemap::about_handler))
+                .route_with_tsr(
+                    "/about/:subpage",
+                    get_internal(super::sitemap::about_handler),
+                )
+                .route_layer(middleware::from_fn(authorized)),
+        )
+    }
+
+    if features.feed {
+        router = router.merge(AxumRouter::new().route_with_tsr(
+            "/releases/feed",
+            get_static(super::releases::releases_feed_handler),
+        )
+        .route_layer(middleware::from_fn(authorized)));
+    }
+
+    if features.search {
+        router = router.merge(
+            AxumRouter::new()
+                .route(
+                    "/opensearch.xml",
+                    get_static(|| async { Redirect::permanent("/-/static/opensearch.xml") }),
+                )
+                .route_layer(middleware::from_fn(authorized)),
+        );
+    }
+
+    if features.sitemap {
+        router = router.merge(
+            AxumRouter::new()
+                .route_with_tsr(
+                    "/sitemap.xml",
+                    get_internal(super::sitemap::sitemapindex_handler),
+                )
+                .route_with_tsr(
+                    "/-/sitemap/:letter/sitemap.xml",
+                    get_internal(super::sitemap::sitemap_handler),
+                )
+                .route_layer(middleware::from_fn(authorized)),
+        );
+    }
+
+    if features.webhook {
+        router = router
+            .merge(AxumRouter::new().route("/api/github/intake", post(github_webhook_handler)));
+    }
+
+    router.with_state(state)
 }
 
 async fn fallback() -> impl IntoResponse {

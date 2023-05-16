@@ -7,7 +7,7 @@ use crate::{
 };
 use axum::{
     http::StatusCode,
-    response::{IntoResponse, Response as AxumResponse, ErrorResponse},
+    response::{ErrorResponse, IntoResponse, Response as AxumResponse},
 };
 
 #[derive(Debug, thiserror::Error)]

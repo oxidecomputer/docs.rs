@@ -1,7 +1,7 @@
 {%- extends "base.html" -%}
 {%- import "releases/header.html" as release_macros -%}
 
-{%- block title -%}Releases - Docs.rs{%- endblock title -%}
+{%- block title -%}Releases - {{ site_title }}{%- endblock title -%}
 
 {%- block header -%}
     {{ release_macros::header(title="Releases", description=description, tab="activity") }}

@@ -1,6 +1,6 @@
 {%- extends "base.html" -%}
 
-{%- block title -%}Docs.rs{%- endblock title -%}
+{%- block title -%}{{ branding.site_title }}{%- endblock title -%}
 
 {%- block body_classes -%}
 centered
@@ -8,21 +8,23 @@ centered
 
 {%- block body -%}
     <div class="container landing">
-        <h1 class="brand">{{ "cubes" | fas(fw=true) }} Docs.rs</h1>
+        <h1 class="brand">{%- if branding.use_logo -%}{{ "cubes" | fas(fw=true) }} {%- endif -%}{{ branding.site_title }}</h1>
 
-        <form action="/releases/search" method="GET" class="landing-search-form">
-            <div>
-                <input class="search-input" id="search" name="query" type="text" aria-label="Find crate by search query"
-                    placeholder="Click or press 'S' to search" autofocus>
-            </div>
+        {%- if site_features.search -%}
+            <form action="/releases/search" method="GET" class="landing-search-form">
+                <div>
+                    <input class="search-input" id="search" name="query" type="text" aria-label="Find crate by search query"
+                        placeholder="Click or press 'S' to search" autofocus>
+                </div>
 
-            <div class="buttons">
-                <button type="submit" class="pure-button pure-button-normal">Search</button>
-                <button type="submit" class="pure-button pure-button-normal" name="i-am-feeling-lucky" value="1">
-                    I'm Feeling Lucky
-                </button>
-            </div>
-        </form>
+                <div class="buttons">
+                    <button type="submit" class="pure-button pure-button-normal">Search</button>
+                    <button type="submit" class="pure-button pure-button-normal" name="i-am-feeling-lucky" value="1">
+                        I'm Feeling Lucky
+                    </button>
+                </div>
+            </form>
+        {%- endif -%}
     </div>
 
     <div class="container">

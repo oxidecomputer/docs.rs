@@ -48,7 +48,10 @@ async fn set_needed_static_headers<B>(req: Request<B>, next: Next<B>) -> Respons
     response
 }
 
-pub(crate) fn build_static_router<T>() -> AxumRouter<T> where T: Clone + Send + Sync + 'static {
+pub(crate) fn build_static_router<T>() -> AxumRouter<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
     AxumRouter::new()
         .route(
             "/vendored.css",

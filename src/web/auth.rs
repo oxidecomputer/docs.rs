@@ -1,17 +1,31 @@
 use anyhow::anyhow;
-use axum::{response::{IntoResponse, Redirect, Result, Response}, Extension, extract::{Query, FromRef}, http::{Request}, middleware::Next};
-use axum_extra::extract::cookie::{SignedCookieJar, Cookie, Key, Expiration};
+use axum::{
+    extract::{FromRef, Query},
+    http::Request,
+    middleware::Next,
+    response::{IntoResponse, Redirect, Response, Result},
+    Extension,
+};
+use axum_extra::extract::cookie::{Cookie, Expiration, Key, SignedCookieJar};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use chrono::{Utc, DateTime};
+use chrono::{DateTime, Utc};
 use crates_index_diff::gix::bstr::ByteSlice;
 use http::StatusCode;
-use oauth2::{basic::{BasicTokenType, BasicErrorResponse, BasicTokenIntrospectionResponse, BasicRevocationErrorResponse}, CsrfToken, Scope, AuthorizationCode, reqwest::async_http_client, TokenUrl, ClientSecret, ClientId, AuthUrl, RedirectUrl, StandardTokenResponse, Client, StandardRevocableToken, ExtraTokenFields};
+use oauth2::{
+    basic::{
+        BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
+        BasicTokenType,
+    },
+    reqwest::async_http_client,
+    AuthUrl, AuthorizationCode, Client, ClientId, ClientSecret, CsrfToken, ExtraTokenFields,
+    RedirectUrl, Scope, StandardRevocableToken, StandardTokenResponse, TokenUrl,
+};
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
 use std::sync::Arc;
+use time::OffsetDateTime;
 use tracing::{info, trace};
 
-use crate::{Config, web::error::internal_error};
+use crate::{web::error::internal_error, Config};
 
 use super::AppState;
 
@@ -52,7 +66,7 @@ pub type AuthClient = Client<
     BasicTokenType,
     BasicTokenIntrospectionResponse,
     StandardRevocableToken,
-    BasicRevocationErrorResponse
+    BasicRevocationErrorResponse,
 >;
 
 // Generate an OAuth client from the app config for authenticating users
@@ -62,7 +76,8 @@ pub(super) fn auth_client(config: Arc<Config>) -> anyhow::Result<AuthClient> {
         Some(ClientSecret::new(config.oauth_client_secret.clone())),
         AuthUrl::new(config.oauth_auth_url.clone())?,
         Some(TokenUrl::new(config.oauth_token_url.clone())?),
-    ).set_redirect_uri(RedirectUrl::new(config.oauth_redirect_url.clone())?))
+    )
+    .set_redirect_uri(RedirectUrl::new(config.oauth_redirect_url.clone())?))
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,7 +93,6 @@ pub struct AuthFields {
 }
 
 impl AuthFields {
-
     // Extract the id token returned from Google which provides identifying information on the
     // authenticated user
     fn token(&self) -> anyhow::Result<IdToken> {
@@ -86,7 +100,9 @@ impl AuthFields {
         // authenticated user
         let parts = self.id_token.split('.').collect::<Vec<_>>();
 
-        let token_part = parts.get(1).ok_or_else(|| anyhow!("OAuth response is missing an id token"))?;
+        let token_part = parts
+            .get(1)
+            .ok_or_else(|| anyhow!("OAuth response is missing an id token"))?;
         let decoded = URL_SAFE_NO_PAD.decode(token_part)?;
         let token = decoded.to_str()?;
         let id_token: IdToken = serde_json::from_str(token)?;
@@ -104,15 +120,12 @@ pub struct IdToken {
 }
 
 impl IdToken {
-
     // Ensure that for the identified user:
     //   1. The email address belongs to the configured domain
     //   2. The email domain is set to the configured domain
     //   3. The IdP reports the email address as verified
     fn authorized(&self, valid_domain: &str) -> bool {
-        self.email.ends_with(valid_domain)
-            && self.hd == valid_domain
-            && self.email_verified
+        self.email.ends_with(valid_domain) && self.hd == valid_domain && self.email_verified
     }
 }
 
@@ -133,7 +146,7 @@ pub(super) async fn authorize(
     let (return_to, mut jar) = extract_return(jar);
 
     if !csrf_check {
-        return Ok((jar, Redirect::to("/login-failure")).into_response())
+        return Ok((jar, Redirect::to("/login-failure")).into_response());
     }
 
     // State has been validated, so try to exchange the authorization code for an access token
@@ -147,7 +160,7 @@ pub(super) async fn authorize(
     let authorized = id_token.authorized(&config.oauth_domain);
 
     if !authorized {
-        return Ok(Redirect::to("/login-failure").into_response())
+        return Ok(Redirect::to("/login-failure").into_response());
     }
 
     jar = jar.add(create_authorization_cookie(SESSION_DURATION).map_err(internal_error)?);
@@ -161,7 +174,8 @@ pub(super) async fn authenticate(
     Extension(client): Extension<Arc<AuthClient>>,
     mut jar: SignedCookieJar,
 ) -> impl IntoResponse {
-    let (url, csrf) = client.authorize_url(CsrfToken::new_random)
+    let (url, csrf) = client
+        .authorize_url(CsrfToken::new_random)
         .add_scope(Scope::new("email".to_string()))
         .url();
 
@@ -171,15 +185,9 @@ pub(super) async fn authenticate(
     (jar, Redirect::to(&url.to_string()))
 }
 
-pub(super) async fn login() -> impl IntoResponse {
-    StatusCode::OK
-}
-
 // Log the user out if they are logged in. This will attempt to delete all state cookies independent
 // of the user being logged in.
-pub(super) async fn logout(
-    jar: SignedCookieJar,
-) -> impl IntoResponse {
+pub(super) async fn logout(jar: SignedCookieJar) -> impl IntoResponse {
     (clear_state_cookies(jar), Redirect::to("/"))
 }
 
@@ -201,7 +209,13 @@ pub(super) async fn authorized<B>(req: Request<B>, next: Next<B>) -> Result<Resp
 
 // Create a cookie for storing the return path that a user should be redirected to after login
 fn create_return_cookie<B>(req: &Request<B>) -> Cookie<'static> {
-    let mut return_to = Cookie::new(AUTH_RETURN_COOKIE, req.uri().path_and_query().map(|path| path.to_string()).unwrap_or("/".to_string()));
+    let mut return_to = Cookie::new(
+        AUTH_RETURN_COOKIE,
+        req.uri()
+            .path_and_query()
+            .map(|path| path.to_string())
+            .unwrap_or("/".to_string()),
+    );
     return_to.set_path("/");
     return_to
 }
@@ -210,7 +224,8 @@ fn create_csrf_cookie(value: &str, duration: i64) -> Cookie<'static> {
     let mut cookie = Cookie::new(AUTH_CSRF, value.to_string());
     cookie.set_path("/");
 
-    let expiration = Expiration::from(OffsetDateTime::now_utc()).map(|t| t + time::Duration::seconds(duration));
+    let expiration =
+        Expiration::from(OffsetDateTime::now_utc()).map(|t| t + time::Duration::seconds(duration));
     cookie.set_expires(expiration);
 
     cookie
@@ -224,7 +239,8 @@ fn create_authorization_cookie(duration: i64) -> anyhow::Result<Cookie<'static>>
     let serialized = serde_json::to_string(&value)?;
 
     // Generate the actual session cookie and set its expiration to make the embedded value
-    let cookie_expiration = Expiration::from(OffsetDateTime::now_utc()).map(|t| t + time::Duration::seconds(duration));
+    let cookie_expiration =
+        Expiration::from(OffsetDateTime::now_utc()).map(|t| t + time::Duration::seconds(duration));
     let mut session_cookie = Cookie::new(AUTH_COOKIE.clone(), serialized);
     session_cookie.set_expires(cookie_expiration);
 
@@ -234,23 +250,26 @@ fn create_authorization_cookie(duration: i64) -> anyhow::Result<Cookie<'static>>
 // Checks that a csrf token exists and has a matching value. Calling this function will consume the
 // csrf cookie, removing it from the jar
 fn check_csrf(mut jar: SignedCookieJar, value: &str) -> (bool, SignedCookieJar) {
-
     // Verify the return state and delete the token cookie
-    let csrf_check = jar.get(AUTH_CSRF).map(|cookie| {
-        trace!(state = ?value, token = ?cookie.value(), "Test csrf token");
-        cookie.value() == value
-    }).unwrap_or(false);
+    let csrf_check = jar
+        .get(AUTH_CSRF)
+        .map(|cookie| {
+            trace!(state = ?value, token = ?cookie.value(), "Test csrf token");
+            cookie.value() == value
+        })
+        .unwrap_or(false);
     jar = jar.remove(Cookie::named(AUTH_CSRF));
 
     (csrf_check, jar)
 }
 
-
 // Extract a return path from the jar. Calling this function will consume the return path cookie,
 // removing it from the jar
 fn extract_return(mut jar: SignedCookieJar) -> (String, SignedCookieJar) {
     let return_cookie = jar.get(AUTH_RETURN_COOKIE);
-    let return_to = return_cookie.map(|cookie| cookie.value().to_string()).unwrap_or("/".to_string());
+    let return_to = return_cookie
+        .map(|cookie| cookie.value().to_string())
+        .unwrap_or("/".to_string());
     jar = jar.remove(Cookie::named(AUTH_RETURN_COOKIE));
 
     (return_to, jar)
@@ -271,8 +290,7 @@ fn get_jar_from_request<B>(req: &Request<B>) -> SignedCookieJar {
 }
 
 fn has_valid_cookie(jar: &SignedCookieJar) -> bool {
-    jar
-        .get(&AUTH_COOKIE)
+    jar.get(&AUTH_COOKIE)
         .and_then(|verified_cookie| {
             match serde_json::from_str::<AuthCookie>(verified_cookie.value()) {
                 Ok(value) => Some(value),
@@ -296,8 +314,8 @@ fn has_valid_cookie(jar: &SignedCookieJar) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use axum_extra::extract::{SignedCookieJar, cookie::Key};
     use super::*;
+    use axum_extra::extract::{cookie::Key, SignedCookieJar};
 
     #[test]
     fn test_empty_jar_is_invalid() {
@@ -317,7 +335,8 @@ mod tests {
     #[test]
     fn test_jar_with_malformed_value_is_invalid() {
         let mut jar = SignedCookieJar::new(Key::generate());
-        let mut cookie = create_authorization_cookie(1000).expect("Failed to create malformed cookie");
+        let mut cookie =
+            create_authorization_cookie(1000).expect("Failed to create malformed cookie");
         cookie.set_value("random malformed value");
         jar = jar.add(cookie);
 

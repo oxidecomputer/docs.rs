@@ -72,9 +72,9 @@
 {# Constructs a title based on the given crate name and version #}
 {% macro doc_title(name, version) %}
     {%- if name -%}
-        {{ name }} {{ version | default(value="") }} - Docs.rs
+        {{ name }} {{ version | default(value="") }} - {{ branding.site_tile }}
     {%- else -%}
-        Docs.rs
+        {{ branding.site_tile }}
     {%- endif -%}
 {% endmacro doc_title %}
 

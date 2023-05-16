@@ -14,9 +14,11 @@
         <link rel="stylesheet" href="/-/static/vendored.css?{{ docsrs_version() | slugify }}" media="all" />
         <link rel="stylesheet" href="/-/static/style.css?{{ docsrs_version() | slugify }}" media="all" />
 
-        <link rel="search" href="/-/static/opensearch.xml" type="application/opensearchdescription+xml" title="Docs.rs" />
+        {%- if site_features.search -%}
+            <link rel="search" href="/-/static/opensearch.xml" type="application/opensearchdescription+xml" title="Docs.rs" />
+        {%- endif -%}
 
-        <title>{%- block title -%} Docs.rs {%- endblock title -%}</title>
+        <title>{%- block title -%} {{ branding.site_title }} {%- endblock title -%}</title>
 
         <script nonce="{{ csp_nonce }}">{%- include "theme.js" -%}</script>
         {%- block css -%}{%- endblock css -%}
