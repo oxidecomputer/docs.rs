@@ -302,6 +302,8 @@ impl Storage {
         max_size: usize,
         mut fetch_time: Option<&mut RenderingTimesRecorder>,
     ) -> Result<Blob> {
+        trace!(archive_path, path, max_size, "Read file from archive");
+
         if let Some(ref mut t) = fetch_time {
             t.step("find path in index");
         }

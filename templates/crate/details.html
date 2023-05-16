@@ -2,11 +2,10 @@
 {%- import "header/package_navigation.html" as navigation -%}
 
 {%- block title -%}
-    {{ macros::doc_title(name=details.name, version=details.version) }}
+    {{ macros::doc_title(name=details.name, version=details.version, site_title=branding.site_title) }}
 {%- endblock title -%}
 
 {%- block meta -%}
-    <link rel="canonical" href="https://docs.rs/crate/{{ details.name }}/latest" />
 {%- endblock meta -%}
 
 {%- block topbar -%}

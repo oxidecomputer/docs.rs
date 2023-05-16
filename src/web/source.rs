@@ -16,7 +16,7 @@ use postgres::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{cmp::Ordering, sync::Arc};
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 /// A source file's name and mime type
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Serialize)]
@@ -204,11 +204,16 @@ pub(crate) async fn source_browser_handler(
 ) -> AxumResult<impl IntoResponse> {
     let v = match_version_axum(&pool, &name, Some(&version)).await?;
 
+    debug!(?v, "Matched version for source file");
+
     if let Some(new_name) = &v.corrected_name {
         // `match_version` checked against -/_ typos, so if we have a name here we should
         // use that instead
         name = new_name.to_string();
     }
+
+    debug!(?name, "Cleaned name");
+
     let (version, version_or_latest, is_latest_url) = match v.version {
         MatchSemver::Latest((version, _)) => (version, "latest".to_string(), true),
         MatchSemver::Exact((version, _)) => (version.clone(), version, false),
@@ -220,6 +225,8 @@ pub(crate) async fn source_browser_handler(
             .into_response());
         }
     };
+
+    debug!(?version, version_or_latest, is_latest_url, "Extracted version data");
 
     let blob = spawn_blocking({
         let pool = pool.clone();
@@ -243,6 +250,7 @@ pub(crate) async fn source_browser_handler(
             // try to get actual file first
             // skip if request is a directory
             Ok(if !path.ends_with('/') {
+                debug!(?name, ?version, ?path, "Read file from storage");
                 storage
                     .fetch_source_file(&name, &version, &path, archive_storage)
                     .ok()
@@ -259,6 +267,8 @@ pub(crate) async fn source_browser_handler(
         let is_text = blob.mime.starts_with("text") || blob.mime == "application/json";
         // serve the file with DatabaseFileHandler if file isn't text and not empty
         if !is_text && !blob.is_empty() {
+            debug!("Read non-text blob");
+
             let mut response = DbFile(blob).into_response();
             response.headers_mut().typed_insert(canonical_url);
             response
@@ -266,6 +276,8 @@ pub(crate) async fn source_browser_handler(
                 .insert(CachePolicy::ForeverInCdnAndStaleInBrowser);
             return Ok(response);
         } else if is_text && !blob.is_empty() {
+            debug!("Read text blob");
+
             let path = blob
                 .path
                 .rsplit_once('/')
@@ -276,11 +288,17 @@ pub(crate) async fn source_browser_handler(
                 String::from_utf8(blob.content).ok(),
             )
         } else {
+            debug!("Blob is empty");
+
             (None, None)
         }
     } else {
+        debug!("No file blob found");
+
         (None, None)
     };
+
+    debug!(?file, ?file_content, "Fetched file contents");
 
     let current_folder = if let Some(last_slash_pos) = path.rfind('/') {
         &path[..last_slash_pos + 1]

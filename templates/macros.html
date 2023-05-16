@@ -70,11 +70,11 @@
 {% endmacro crate_limits %}
 
 {# Constructs a title based on the given crate name and version #}
-{% macro doc_title(name, version) %}
+{% macro doc_title(name, version, site_title) %}
     {%- if name -%}
-        {{ name }} {{ version | default(value="") }} - {{ branding.site_tile }}
+        {{ name }} {{ version | default(value="") }} - {{ site_title }}
     {%- else -%}
-        {{ branding.site_tile }}
+        {{ site_title }}
     {%- endif -%}
 {% endmacro doc_title %}
 

@@ -12,6 +12,7 @@ use http::header::CONTENT_LENGTH;
 use serde::Serialize;
 use std::sync::Arc;
 use tera::Context;
+use tracing::debug;
 
 #[macro_export]
 macro_rules! impl_axum_webpage {
@@ -130,6 +131,8 @@ fn render_response(
     branding: Branding,
     site_features: SiteFeatures,
 ) -> BoxFuture<'static, AxumResponse> {
+    debug!("Render response");
+
     async move {
         if let Some(render) = response.extensions_mut().remove::<DelayedTemplateRender>() {
             let DelayedTemplateRender {
@@ -144,6 +147,8 @@ fn render_response(
             let rendered = if cpu_intensive_rendering {
                 templates
                     .render_in_threadpool(move |templates| {
+                        debug!(?template, "Render template in threadpool");
+
                         templates
                             .templates
                             .render(&template, &context)
@@ -151,6 +156,8 @@ fn render_response(
                     })
                     .await
             } else {
+                debug!(?template, "Render template");
+
                 templates
                     .templates
                     .render(&template, &context)

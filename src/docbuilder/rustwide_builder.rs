@@ -511,7 +511,7 @@ impl RustwideBuilder {
                     let files_list = {
                         let (files_list, new_alg) = add_path_into_remote_archive(
                             &self.storage,
-                            &source_archive_path(name, version),
+                            &source_archive_path(name, &cargo_metadata.version),
                             build.host_source_dir(),
                             false,
                         )?;
@@ -532,9 +532,9 @@ impl RustwideBuilder {
                         match self
                             .index
                             .api()
-                            .get_release_data(name, version)
+                            .get_release_data(name, &cargo_metadata.version)
                             .with_context(|| {
-                                format!("could not fetch releases-data for {name}-{version}")
+                                format!("could not fetch releases-data for {name}-{}", cargo_metadata.version)
                             }) {
                             Ok(data) => data,
                             Err(err) => {
@@ -585,7 +585,7 @@ impl RustwideBuilder {
                         // we're doing this in the end so eventual problems in the build
                         // won't lead to non-existing docs.
                         for prefix in &["rustdoc", "sources"] {
-                            let prefix = format!("{prefix}/{name}/{version}/");
+                            let prefix = format!("{prefix}/{name}/{}/", cargo_metadata.version);
                             debug!("cleaning old storage folder {}", prefix);
                             self.storage.delete_prefix(&prefix)?;
                         }

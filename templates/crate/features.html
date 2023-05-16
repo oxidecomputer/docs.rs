@@ -2,11 +2,10 @@
 {%- import "header/package_navigation.html" as navigation -%}
 
 {%- block title -%}
-    {{ macros::doc_title(name=metadata.name, version=metadata.version) }}
+    {{ macros::doc_title(name=metadata.name, version=metadata.version, site_title=branding.site_title) }}
 {%- endblock title -%}
 
 {%- block meta -%}
-<link rel="canonical" href="{{ canonical_url | safe }}" />
 {%- endblock -%}
 
 {%- block topbar -%}

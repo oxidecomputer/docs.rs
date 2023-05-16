@@ -2,7 +2,7 @@
 {%- import "header/package_navigation.html" as navigation -%}
 
 {%- block title -%}
-    {{ macros::doc_title(name=file_list.metadata.name, version=file_list.metadata.version) }}
+    {{ macros::doc_title(name=file_list.metadata.name, version=file_list.metadata.version, site_title=branding.site_title) }}
 {%- endblock title -%}
 
 {%- block topbar -%}
