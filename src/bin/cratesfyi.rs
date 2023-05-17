@@ -125,6 +125,10 @@ enum CommandLine {
 
     /// Starts the daemon
     Daemon {
+        /// Address to start the webserver on
+        #[arg(name = "SOCKET_ADDR", default_value = "0.0.0.0:3000")]
+        socket_addr: String,
+
         /// Enable or disable the registry watcher to automatically enqueue newly published crates
         #[arg(long = "registry-watcher", default_value = "enabled", value_enum)]
         registry_watcher: Toggle,
@@ -174,8 +178,8 @@ impl CommandLine {
                 // Blocks indefinitely
                 start_web_server(Some(&socket_addr), &ctx)?;
             }
-            Self::Daemon { registry_watcher } => {
-                docs_rs::utils::start_daemon(ctx, registry_watcher == Toggle::Enabled)?;
+            Self::Daemon { socket_addr: String, registry_watcher } => {
+                docs_rs::utils::start_daemon(ctx, Some(socket_addr), registry_watcher == Toggle::Enabled)?;
             }
             Self::Database { subcommand } => subcommand.handle_args(ctx)?,
             Self::Queue { subcommand } => subcommand.handle_args(ctx)?,

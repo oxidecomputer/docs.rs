@@ -131,6 +131,7 @@ pub fn start_background_cdn_invalidator(context: &dyn Context) -> Result<(), Err
 
 pub fn start_daemon<C: Context + Send + Sync + 'static>(
     context: C,
+    socket_addr: Option<String>,
     enable_registry_watcher: bool,
 ) -> Result<(), Error> {
     let context = Arc::new(context);
@@ -140,7 +141,7 @@ pub fn start_daemon<C: Context + Send + Sync + 'static>(
     info!("Starting web server");
     let webserver_thread = thread::spawn({
         let context = context.clone();
-        move || start_web_server(None, &*context)
+        move || start_web_server(socket_addr.as_deref(), &*context)
     });
 
     if enable_registry_watcher {
