@@ -178,7 +178,7 @@ impl CommandLine {
                 // Blocks indefinitely
                 start_web_server(Some(&socket_addr), &ctx)?;
             }
-            Self::Daemon { socket_addr: String, registry_watcher } => {
+            Self::Daemon { socket_addr, registry_watcher } => {
                 docs_rs::utils::start_daemon(ctx, Some(socket_addr), registry_watcher == Toggle::Enabled)?;
             }
             Self::Database { subcommand } => subcommand.handle_args(ctx)?,
