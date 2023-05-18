@@ -11,7 +11,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::sync::Arc;
-use tracing::{error, info, warn, debug};
+use tracing::{error, info, debug};
 
 use crate::{web::error::{internal_error, bad_request}, BuildQueue, Config, utils::spawn_blocking, github::get_build_token};
 
@@ -133,7 +133,6 @@ impl ToProcess {
 pub(crate) async fn github_webhook_handler(
     Extension(config): Extension<Arc<Config>>,
     Extension(queue): Extension<Arc<BuildQueue>>,
-    TypedHeader(installation_id): TypedHeader<GitHubInstallationIdHeader>,
     TypedHeader(signature): TypedHeader<GitHubSignatureHeader>,
     RawBody(body): RawBody<Body>,
 ) -> Result<impl IntoResponse> {
@@ -163,16 +162,11 @@ pub(crate) async fn github_webhook_handler(
 
     info!(?message, "Extracted docs message");
 
-    if processable.installation.id != installation_id.0 {
-        warn!(?processable.installation.id, ?installation_id, "Payload installation did not match header");
-        return Err(StatusCode::BAD_REQUEST.into());
-    }
-
     let build = BuildCommand::matches(&message, &config).ok_or_else(|| StatusCode::OK)?;
 
     info!(?build, "Processing build request");
 
-    let authenticator = config.wh_app_authenticator.installation_authenticator(installation_id.0);
+    let authenticator = config.wh_app_authenticator.installation_authenticator(processable.installation.id);
     let token = get_build_token(&authenticator, processable.repository.name.clone()).await.map_err(internal_error)?;
 
     info!("Generated access token for fetch");
@@ -236,34 +230,6 @@ fn extract_request(event: Event) -> Option<ToProcess> {
                 })
             },
         },
-    }
-}
-
-static GITHUB_INSTALLATION_ID_HEADER_NAME: HeaderName = HeaderName::from_static("x-github-hook-installation-target-id");
-
-#[derive(Debug)]
-pub(crate) struct GitHubInstallationIdHeader(u32);
-
-impl Header for GitHubInstallationIdHeader {
-    fn name() -> &'static http::HeaderName {
-        &GITHUB_INSTALLATION_ID_HEADER_NAME
-    }
-
-    fn decode<'i, I>(values: &mut I) -> std::result::Result<Self, axum::headers::Error>
-        where
-            Self: Sized,
-            I: Iterator<Item = &'i http::HeaderValue> {
-        for value in values {
-            if let Some(id) = value.to_str().ok().and_then(|value| value.parse::<u32>().ok()) {
-                return Ok(Self(id))
-            }
-        }
-
-        Err(axum::headers::Error::invalid())
-    }
-
-    fn encode<E: Extend<http::HeaderValue>>(&self, _values: &mut E) {
-        unimplemented!()
     }
 }
 
