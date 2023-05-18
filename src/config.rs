@@ -32,6 +32,9 @@ pub struct Config {
     #[cfg(test)]
     pub(crate) s3_bucket_is_temporary: bool,
 
+    // GCS Support
+    pub(crate) gcs_bucket: Option<String>,
+
     // CloudFront domain which we can access
     // public S3 files through
     pub(crate) s3_static_root_path: String,
@@ -176,6 +179,8 @@ impl Config {
                 "DOCSRS_S3_STATIC_ROOT_PATH",
                 "https://static.docs.rs".to_string(),
             )?,
+
+            gcs_bucket: maybe_env("DOCSRS_GCS_BUCKET")?,
 
             github_accesstoken: maybe_env("DOCSRS_GITHUB_ACCESSTOKEN")?,
             github_updater_min_rate_limit: env("DOCSRS_GITHUB_UPDATER_MIN_RATE_LIMIT", 2500)?,

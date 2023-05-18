@@ -77,6 +77,8 @@ aws-config = "0.55.1"
 aws-sdk-s3 = "0.26.0"
 aws-sdk-cloudfront = "0.26.0"
 aws-smithy-types-convert = { version = "0.55.1", features = ["convert-chrono"] }
+google-cloud-default = { version = "0.2.0", features = ["storage"] }
+google-cloud-storage = "0.11.0"
 http = "0.2.6"
 uuid = "1.1.2"
 

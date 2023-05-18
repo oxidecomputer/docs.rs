@@ -1,10 +1,12 @@
 mod archive_index;
 mod compression;
 mod database;
+mod gcs;
 mod s3;
 
 pub use self::compression::{compress, decompress, CompressionAlgorithm, CompressionAlgorithms};
 use self::database::DatabaseBackend;
+use self::gcs::GcsBackend;
 use self::s3::S3Backend;
 use crate::error::Result;
 use crate::web::metrics::RenderingTimesRecorder;
@@ -89,6 +91,7 @@ pub(crate) struct InvalidStorageBackendError;
 #[derive(Debug)]
 pub(crate) enum StorageKind {
     Database,
+    Gcs,
     S3,
 }
 
@@ -98,6 +101,7 @@ impl std::str::FromStr for StorageKind {
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         match input {
             "database" => Ok(StorageKind::Database),
+            "gcs" => Ok(StorageKind::Gcs),
             "s3" => Ok(StorageKind::S3),
             _ => Err(InvalidStorageBackendError),
         }
@@ -106,6 +110,7 @@ impl std::str::FromStr for StorageKind {
 
 enum StorageBackend {
     Database(DatabaseBackend),
+    Gcs(Box<GcsBackend>),
     S3(Box<S3Backend>),
 }
 
@@ -127,6 +132,9 @@ impl Storage {
                 StorageKind::Database => {
                     StorageBackend::Database(DatabaseBackend::new(pool, metrics))
                 }
+                StorageKind::Gcs => {
+                    StorageBackend::Gcs(Box::new(GcsBackend::new(metrics, &config, runtime)?))
+                }
                 StorageKind::S3 => {
                     StorageBackend::S3(Box::new(S3Backend::new(metrics, &config, runtime)?))
                 }
@@ -137,6 +145,7 @@ impl Storage {
     pub(crate) fn exists(&self, path: &str) -> Result<bool> {
         match &self.backend {
             StorageBackend::Database(db) => db.exists(path),
+            StorageBackend::Gcs(gcs) => gcs.exists(path),
             StorageBackend::S3(s3) => s3.exists(path),
         }
     }
@@ -144,6 +153,7 @@ impl Storage {
     pub(crate) fn get_public_access(&self, path: &str) -> Result<bool> {
         match &self.backend {
             StorageBackend::Database(db) => db.get_public_access(path),
+            StorageBackend::Gcs(gcs) => gcs.get_public_access(path),
             StorageBackend::S3(s3) => s3.get_public_access(path),
         }
     }
@@ -151,6 +161,7 @@ impl Storage {
     pub(crate) fn set_public_access(&self, path: &str, public: bool) -> Result<()> {
         match &self.backend {
             StorageBackend::Database(db) => db.set_public_access(path, public),
+            StorageBackend::Gcs(gcs) => gcs.set_public_access(path, public),
             StorageBackend::S3(s3) => s3.set_public_access(path, public),
         }
     }
@@ -242,6 +253,7 @@ impl Storage {
     pub(crate) fn get(&self, path: &str, max_size: usize) -> Result<Blob> {
         let mut blob = match &self.backend {
             StorageBackend::Database(db) => db.get(path, max_size, None),
+            StorageBackend::Gcs(gcs) => gcs.get(path, max_size, None),
             StorageBackend::S3(s3) => s3.get(path, max_size, None),
         }?;
         if let Some(alg) = blob.compression {
@@ -260,6 +272,7 @@ impl Storage {
     ) -> Result<Blob> {
         let mut blob = match &self.backend {
             StorageBackend::Database(db) => db.get(path, max_size, Some(range)),
+            StorageBackend::Gcs(gcs) => gcs.get(path, max_size, Some(range)),
             StorageBackend::S3(s3) => s3.get(path, max_size, Some(range)),
         }?;
         // `compression` represents the compression of the file-stream inside the archive.
@@ -417,6 +430,7 @@ impl Storage {
                 conn = db.start_connection()?;
                 Box::new(conn.start_storage_transaction()?)
             }
+            StorageBackend::Gcs(gcs) => Box::new(gcs.start_storage_transaction()),
             StorageBackend::S3(s3) => Box::new(s3.start_storage_transaction()),
         };
 
@@ -536,6 +550,7 @@ impl std::fmt::Debug for Storage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.backend {
             StorageBackend::Database(_) => write!(f, "database-backed storage"),
+            StorageBackend::Gcs(_) => write!(f, "Gcs-backed storage"),
             StorageBackend::S3(_) => write!(f, "S3-backed storage"),
         }
     }
