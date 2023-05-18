@@ -534,7 +534,10 @@ impl RustwideBuilder {
                             .api()
                             .get_release_data(name, &cargo_metadata.version)
                             .with_context(|| {
-                                format!("could not fetch releases-data for {name}-{}", cargo_metadata.version)
+                                format!(
+                                    "could not fetch releases-data for {name}-{}",
+                                    cargo_metadata.version
+                                )
                             }) {
                             Ok(data) => data,
                             Err(err) => {

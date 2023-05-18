@@ -1,7 +1,13 @@
 use anyhow::Result;
-use github_app_authenticator::{GitHubInstallationAuthenticator, TokenRequest, permissions::{Permissions, ReadWrite}};
+use github_app_authenticator::{
+    permissions::{Permissions, ReadWrite},
+    GitHubInstallationAuthenticator, TokenRequest,
+};
 
-pub async fn get_build_token(authenticator: &GitHubInstallationAuthenticator, repository: String) -> Result<String> {
+pub async fn get_build_token(
+    authenticator: &GitHubInstallationAuthenticator,
+    repository: String,
+) -> Result<String> {
     let mut token_request = TokenRequest::default();
 
     token_request.repositories = Some(vec![repository]);

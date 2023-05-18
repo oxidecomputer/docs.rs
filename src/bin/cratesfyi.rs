@@ -179,8 +179,15 @@ impl CommandLine {
                 // Blocks indefinitely
                 start_web_server(Some(&socket_addr), &ctx)?;
             }
-            Self::Daemon { socket_addr, registry_watcher } => {
-                docs_rs::utils::start_daemon(ctx, Some(socket_addr), registry_watcher == Toggle::Enabled)?;
+            Self::Daemon {
+                socket_addr,
+                registry_watcher,
+            } => {
+                docs_rs::utils::start_daemon(
+                    ctx,
+                    Some(socket_addr),
+                    registry_watcher == Toggle::Enabled,
+                )?;
             }
             Self::Database { subcommand } => subcommand.handle_args(ctx)?,
             Self::Queue { subcommand } => subcommand.handle_args(ctx)?,
@@ -272,11 +279,11 @@ impl QueueSubcommand {
             } => {
                 let app = &ctx.config()?.wh_app_authenticator;
                 let auth = app.installation_authenticator(installation);
-                let token = ctx.runtime()?.block_on(async {
-                    get_build_token(&auth, github_repo).await
-                })?;
-                let tokened_url = clone_url
-                    .replace("https://", &format!("https://x-access-token:{}@", token));
+                let token = ctx
+                    .runtime()?
+                    .block_on(async { get_build_token(&auth, github_repo).await })?;
+                let tokened_url =
+                    clone_url.replace("https://", &format!("https://x-access-token:{}@", token));
 
                 ctx.build_queue()?.add_github_crate(
                     &crate_name,
@@ -284,7 +291,7 @@ impl QueueSubcommand {
                     build_priority,
                     &tokened_url,
                 )?
-            },
+            }
 
             Self::DefaultPriority { subcommand } => subcommand.handle_args(ctx)?,
         }

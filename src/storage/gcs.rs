@@ -1,22 +1,25 @@
-use std::{sync::Arc, borrow::Cow};
+use std::{borrow::Cow, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use chrono::Utc;
-use futures_util::{StreamExt, stream::FuturesUnordered, TryFutureExt};
+use futures_util::{stream::FuturesUnordered, StreamExt, TryFutureExt};
 use google_cloud_default::WithAuthExt;
 use google_cloud_storage::{
-    client::{
-        Client,
-        ClientConfig
-    },
-    http::objects::{get::GetObjectRequest, Object, upload::{UploadObjectRequest, UploadType, Media}, list::ListObjectsRequest, delete::DeleteObjectRequest},
+    client::{Client, ClientConfig},
     http::objects::download::Range,
+    http::objects::{
+        delete::DeleteObjectRequest,
+        get::GetObjectRequest,
+        list::ListObjectsRequest,
+        upload::{Media, UploadObjectRequest, UploadType},
+        Object,
+    },
 };
 use std::io::Write;
 use tokio::runtime::Runtime;
 use tracing::{info, warn};
 
-use crate::{Metrics, Config};
+use crate::{Config, Metrics};
 
 use super::{Blob, FileRange, StorageTransaction};
 
@@ -41,19 +44,26 @@ impl GcsBackend {
         Ok(Self {
             client: runtime.block_on(client())?,
             runtime,
-            bucket: config.gcs_bucket.as_ref().ok_or_else(|| anyhow!("GCS Bucket is not configured"))?.to_string(),
+            bucket: config
+                .gcs_bucket
+                .as_ref()
+                .ok_or_else(|| anyhow!("GCS Bucket is not configured"))?
+                .to_string(),
             metrics,
         })
     }
 
     fn meta(&self, path: &str) -> Result<Object> {
         self.runtime.block_on(async {
-            let object = self.client.get_object(&GetObjectRequest {
-                bucket: self.bucket.clone(),
-                object: path.to_string(),
-                ..Default::default()
-            }).await?;
-            
+            let object = self
+                .client
+                .get_object(&GetObjectRequest {
+                    bucket: self.bucket.clone(),
+                    object: path.to_string(),
+                    ..Default::default()
+                })
+                .await?;
+
             Ok(object)
         })
     }
@@ -70,7 +80,6 @@ impl GcsBackend {
         Err(anyhow!("Public access is not supported"))
     }
 
-    
     pub(super) fn get(
         &self,
         path: &str,
@@ -80,21 +89,25 @@ impl GcsBackend {
         let meta = self.meta(path)?;
 
         self.runtime.block_on(async {
-            let mut chunks = self.client
+            let mut chunks = self
+                .client
                 .download_streamed_object(
                     &GetObjectRequest {
                         bucket: self.bucket.clone(),
                         object: path.to_string(),
                         ..Default::default()
                     },
-                    &range.map(|range| {
-                        let mut r = Range::default();
-                        r.0 = range.clone().min();
-                        r.1 = range.max();
+                    &range
+                        .map(|range| {
+                            let mut r = Range::default();
+                            r.0 = range.clone().min();
+                            r.1 = range.max();
 
-                        r
-                    }).unwrap_or_else(|| Range::default())
-                ).await?;
+                            r
+                        })
+                        .unwrap_or_else(|| Range::default()),
+                )
+                .await?;
 
             let mut content = crate::utils::sized_buffer::SizedBuffer::new(max_size);
 
@@ -109,7 +122,7 @@ impl GcsBackend {
                 mime: meta.content_type.unwrap(),
                 date_updated: Utc::now(),
                 content: content.into_inner(),
-                compression
+                compression,
             })
         })
     }
@@ -120,23 +133,26 @@ impl GcsBackend {
 }
 
 pub struct GcsStorageTransaction<'a> {
-    gcs: &'a GcsBackend
+    gcs: &'a GcsBackend,
 }
 
 impl<'a> StorageTransaction for GcsStorageTransaction<'a> {
     fn store_batch(&mut self, mut batch: Vec<Blob>) -> Result<()> {
         self.gcs.runtime.block_on(async {
-            let requests = batch.iter().map(|blob| {
-                let mut media = Media::new(blob.path.clone());
-                media.content_type = Cow::Owned(blob.mime.clone());
-                let upload_type = UploadType::Simple(media);
-                let req = UploadObjectRequest {
-                    bucket: self.gcs.bucket.clone(),
-                    ..Default::default()
-                };
+            let requests = batch
+                .iter()
+                .map(|blob| {
+                    let mut media = Media::new(blob.path.clone());
+                    media.content_type = Cow::Owned(blob.mime.clone());
+                    let upload_type = UploadType::Simple(media);
+                    let req = UploadObjectRequest {
+                        bucket: self.gcs.bucket.clone(),
+                        ..Default::default()
+                    };
 
-                (req, upload_type)
-            }).collect::<Vec<_>>();
+                    (req, upload_type)
+                })
+                .collect::<Vec<_>>();
 
             for _ in 0..3 {
                 let mut futures = FuturesUnordered::new();
@@ -148,11 +164,7 @@ impl<'a> StorageTransaction for GcsStorageTransaction<'a> {
                     futures.push(
                         self.gcs
                             .client
-                            .upload_object(
-                                &req,
-                                blob.content.clone(),
-                                &upload_type
-                            )
+                            .upload_object(&req, blob.content.clone(), &upload_type)
                             .map_ok(|_| {
                                 info!("Uploaded to GCS");
                                 self.gcs.metrics.uploaded_files_total.inc();
@@ -166,7 +178,6 @@ impl<'a> StorageTransaction for GcsStorageTransaction<'a> {
 
                     i += 1;
                 }
-
 
                 while let Some(result) = futures.next().await {
                     // Push each failed blob back into the batch
@@ -197,19 +208,20 @@ impl<'a> StorageTransaction for GcsStorageTransaction<'a> {
                         prefix: Some(prefix.to_string()),
                         page_token: continuation_token.take(),
                         ..Default::default()
-                    }).await?;
+                    })
+                    .await?;
 
                 if let Some(items) = list.items {
                     if items.len() > 0 {
                         for item in items {
-                            self
-                                .gcs
+                            self.gcs
                                 .client
                                 .delete_object(&DeleteObjectRequest {
                                     bucket: self.gcs.bucket.to_string(),
                                     object: item.name,
                                     ..Default::default()
-                                }).await?;
+                                })
+                                .await?;
                         }
                     }
                 }
@@ -217,7 +229,7 @@ impl<'a> StorageTransaction for GcsStorageTransaction<'a> {
                 continuation_token = list.next_page_token;
 
                 if continuation_token.is_none() {
-                    return Ok(())
+                    return Ok(());
                 }
             }
         })

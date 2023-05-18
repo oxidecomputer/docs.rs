@@ -1,19 +1,25 @@
 use axum::{
+    extract::RawBody,
     headers::Header,
     response::{IntoResponse, Result},
-    Extension, TypedHeader, extract::RawBody,
+    Extension, TypedHeader,
 };
 use hmac::{Hmac, Mac};
-use http::{StatusCode, HeaderName};
-use hyper::{Body, body::to_bytes};
-use octorust::{auth::Credentials};
+use http::{HeaderName, StatusCode};
+use hyper::{body::to_bytes, Body};
+use octorust::auth::Credentials;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::sync::Arc;
-use tracing::{error, info, debug};
+use tracing::{debug, error, info};
 
-use crate::{web::error::{internal_error, bad_request}, BuildQueue, Config, utils::spawn_blocking, github::get_build_token};
+use crate::{
+    github::get_build_token,
+    utils::spawn_blocking,
+    web::error::{bad_request, internal_error},
+    BuildQueue, Config,
+};
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
@@ -122,7 +128,7 @@ impl ToProcess {
 
         for part in parts {
             if let Some(message) = pattern.captures(part).and_then(|captures| captures.get(1)) {
-                return Some(message.as_str().to_string())
+                return Some(message.as_str().to_string());
             }
         }
 
@@ -138,7 +144,8 @@ pub(crate) async fn github_webhook_handler(
 ) -> Result<impl IntoResponse> {
     // Check the request signature
     let body = to_bytes(body).await.map_err(bad_request)?;
-    let mut mac = <Hmac::<Sha256> as Mac>::new_from_slice(config.wh_secret.as_bytes()).map_err(internal_error)?;
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(config.wh_secret.as_bytes())
+        .map_err(internal_error)?;
     mac.update(&body);
     let verified = mac.verify_slice(&signature.0).is_ok();
 
@@ -166,12 +173,17 @@ pub(crate) async fn github_webhook_handler(
 
     info!(?build, "Processing build request");
 
-    let authenticator = config.wh_app_authenticator.installation_authenticator(processable.installation.id);
-    let token = get_build_token(&authenticator, processable.repository.name.clone()).await.map_err(internal_error)?;
+    let authenticator = config
+        .wh_app_authenticator
+        .installation_authenticator(processable.installation.id);
+    let token = get_build_token(&authenticator, processable.repository.name.clone())
+        .await
+        .map_err(internal_error)?;
 
     info!("Generated access token for fetch");
 
-    let github = octorust::Client::new(&config.wh_user_agent, Credentials::Token(token.clone())).unwrap();
+    let github =
+        octorust::Client::new(&config.wh_user_agent, Credentials::Token(token.clone())).unwrap();
     let pr = github
         .pulls()
         .get(
@@ -199,12 +211,11 @@ pub(crate) async fn github_webhook_handler(
         }
 
         res
-    }).await;
+    })
+    .await;
 
     match task {
-        Ok(_) => {
-            Ok(StatusCode::ACCEPTED)
-        },
+        Ok(_) => Ok(StatusCode::ACCEPTED),
         Err(err) => {
             error!(?err, "Failed to queue build request");
             Err(internal_error(err))
@@ -221,14 +232,12 @@ fn extract_request(event: Event) -> Option<ToProcess> {
                 repository,
                 installation,
                 ..
-            } => {
-                issue.pull_request.is_some().then_some(ToProcess {
-                    comment: comment,
-                    issue: issue,
-                    repository: repository,
-                    installation: installation,
-                })
-            },
+            } => issue.pull_request.is_some().then_some(ToProcess {
+                comment: comment,
+                issue: issue,
+                repository: repository,
+                installation: installation,
+            }),
         },
     }
 }
@@ -244,14 +253,18 @@ impl Header for GitHubSignatureHeader {
     }
 
     fn decode<'i, I>(values: &mut I) -> std::result::Result<Self, axum::headers::Error>
-        where
-            Self: Sized,
-            I: Iterator<Item = &'i http::HeaderValue> {
+    where
+        Self: Sized,
+        I: Iterator<Item = &'i http::HeaderValue>,
+    {
         for value in values {
-            let sig = value.to_str().ok().and_then(|value| hex::decode(value.trim_start_matches("sha256=")).ok());
+            let sig = value
+                .to_str()
+                .ok()
+                .and_then(|value| hex::decode(value.trim_start_matches("sha256=")).ok());
 
             if let Some(sig) = sig {
-                return Ok(Self(sig))
+                return Ok(Self(sig));
             }
         }
 
@@ -264,12 +277,14 @@ impl Header for GitHubSignatureHeader {
 }
 
 pub trait Command {
-    fn matches(message: &str, config: &Config) -> Option<Self> where Self: Sized;
+    fn matches(message: &str, config: &Config) -> Option<Self>
+    where
+        Self: Sized;
 }
 
 #[derive(Debug)]
 pub struct BuildCommand {
-    name: String
+    name: String,
 }
 
 impl Command for BuildCommand {

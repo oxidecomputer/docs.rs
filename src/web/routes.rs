@@ -317,11 +317,14 @@ pub(super) fn build_axum_routes(config: Arc<Config>) -> AxumRouter {
     }
 
     if features.feed {
-        router = router.merge(AxumRouter::new().route_with_tsr(
-            "/releases/feed",
-            get_static(super::releases::releases_feed_handler),
-        )
-        .route_layer(middleware::from_fn(authorized)));
+        router = router.merge(
+            AxumRouter::new()
+                .route_with_tsr(
+                    "/releases/feed",
+                    get_static(super::releases::releases_feed_handler),
+                )
+                .route_layer(middleware::from_fn(authorized)),
+        );
     }
 
     if features.search {

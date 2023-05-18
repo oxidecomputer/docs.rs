@@ -226,7 +226,10 @@ pub(crate) async fn source_browser_handler(
         }
     };
 
-    debug!(?version, version_or_latest, is_latest_url, "Extracted version data");
+    debug!(
+        ?version,
+        version_or_latest, is_latest_url, "Extracted version data"
+    );
 
     let blob = spawn_blocking({
         let pool = pool.clone();
