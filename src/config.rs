@@ -116,7 +116,7 @@ pub struct Config {
     pub(crate) oauth_redirect_url: String,
 
     // Webhook build params
-    pub(crate) wh_app_authenticator: GitHubAppAuthenticator,
+    pub wh_app_authenticator: GitHubAppAuthenticator,
     pub(crate) wh_build_trigger: String,
     pub(crate) wh_secret: String,
     pub(crate) wh_user_agent: String,

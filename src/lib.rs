@@ -19,6 +19,7 @@ mod context;
 pub mod db;
 mod docbuilder;
 mod error;
+pub mod github;
 pub mod index;
 pub mod metrics;
 pub mod repositories;

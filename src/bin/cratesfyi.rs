@@ -8,6 +8,7 @@ use anyhow::{anyhow, Context as _, Error, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use docs_rs::cdn::CdnBackend;
 use docs_rs::db::{self, add_path_into_database, Overrides, Pool, PoolClient};
+use docs_rs::github::get_build_token;
 use docs_rs::repositories::RepositoryStatsUpdater;
 use docs_rs::utils::{
     get_config, queue_builder, remove_crate_priority, set_crate_priority, ConfigName,
@@ -209,6 +210,37 @@ enum QueueSubcommand {
         build_priority: i32,
     },
 
+    AddGitHub {
+        /// Crate name
+        #[arg(name = "CRATE_NAME")]
+        crate_name: String,
+
+        /// Repo to build
+        #[arg(name = "GITHUB_REPO")]
+        github_repo: String,
+
+        /// Branch of the repo to build
+        #[arg(name = "GITHUB_BRANCH")]
+        github_branch: String,
+
+        // Clone url of the GitHub repo
+        #[arg(name = "GITHUB_URL")]
+        clone_url: String,
+
+        // GitHub installation to authenticate against
+        #[arg(name = "INSTALLATION_ID")]
+        installation: u32,
+
+        /// Priority of build (new crate builds get priority 0)
+        #[arg(
+            name = "BUILD_PRIORITY",
+            short = 'p',
+            long = "priority",
+            default_value = "5"
+        )]
+        build_priority: i32,
+    },
+
     /// Interactions with build queue priorities
     DefaultPriority {
         #[command(subcommand)]
@@ -229,6 +261,30 @@ impl QueueSubcommand {
                 build_priority,
                 ctx.config()?.registry_url.as_deref(),
             )?,
+
+            Self::AddGitHub {
+                crate_name,
+                github_repo,
+                github_branch,
+                clone_url,
+                installation,
+                build_priority,
+            } => {
+                let app = &ctx.config()?.wh_app_authenticator;
+                let auth = app.installation_authenticator(installation);
+                let token = ctx.runtime()?.block_on(async {
+                    get_build_token(&auth, github_repo).await
+                })?;
+                let tokened_url = clone_url
+                    .replace("https://", &format!("https://x-access-token:{}@", token));
+
+                ctx.build_queue()?.add_github_crate(
+                    &crate_name,
+                    &github_branch,
+                    build_priority,
+                    &tokened_url,
+                )?
+            },
 
             Self::DefaultPriority { subcommand } => subcommand.handle_args(ctx)?,
         }

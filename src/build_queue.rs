@@ -90,13 +90,13 @@ impl BuildQueue {
         Ok(())
     }
 
-    #[context("error trying to add {name}-{version} ({github:?}) to build queue")]
+    #[context("error trying to add {name}-{branch} to build queue")]
     pub fn add_github_crate(
         &self,
         name: &str,
-        version: &str,
+        branch: &str,
         priority: i32,
-        github: &str,
+        github_url: &str,
     ) -> Result<()> {
         self.db.get()?.execute(
             "INSERT INTO queue (name, version, priority, github)
@@ -106,7 +106,7 @@ impl BuildQueue {
                     github = EXCLUDED.github,
                     attempt = 0
             ;",
-            &[&name, &version, &priority, &github],
+            &[&name, &branch, &priority, &github_url],
         )?;
         Ok(())
     }

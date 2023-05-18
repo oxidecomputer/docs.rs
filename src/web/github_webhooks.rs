@@ -3,7 +3,6 @@ use axum::{
     response::{IntoResponse, Result},
     Extension, TypedHeader, extract::RawBody,
 };
-use github_app_authenticator::{TokenRequest, permissions::{Permissions, ReadWrite}};
 use hmac::{Hmac, Mac};
 use http::{StatusCode, HeaderName};
 use hyper::{Body, body::to_bytes};
@@ -14,7 +13,7 @@ use sha2::Sha256;
 use std::sync::Arc;
 use tracing::{error, info, warn, debug};
 
-use crate::{web::error::{internal_error, bad_request}, BuildQueue, Config, utils::spawn_blocking};
+use crate::{web::error::{internal_error, bad_request}, BuildQueue, Config, utils::spawn_blocking, github::get_build_token};
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
@@ -174,17 +173,7 @@ pub(crate) async fn github_webhook_handler(
     info!(?build, "Processing build request");
 
     let authenticator = config.wh_app_authenticator.installation_authenticator(installation_id.0);
-
-    let mut token_request = TokenRequest::default();
-
-    token_request.repository_ids = Some(vec![processable.repository.id]);
-
-    let mut permissions = Permissions::default();
-    permissions.contents = Some(ReadWrite::Read);
-    permissions.pull_requests = Some(ReadWrite::Read);
-    token_request.permissions = Some(permissions);
-
-    let token = authenticator.access_token(&token_request).await.map_err(internal_error)?;
+    let token = get_build_token(&authenticator, processable.repository.name.clone()).await.map_err(internal_error)?;
 
     info!("Generated access token for fetch");
 
