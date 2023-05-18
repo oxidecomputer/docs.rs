@@ -118,6 +118,7 @@ pub struct Config {
     // Webhook build params
     pub(crate) wh_app_authenticator: GitHubAppAuthenticator,
     pub(crate) wh_build_trigger: String,
+    pub(crate) wh_secret: String,
     pub(crate) wh_user_agent: String,
 }
 
@@ -235,6 +236,7 @@ impl Config {
                 HeaderValue::from_str(&env("WH_APP_USER_AGENT", String::new())?)?,
             ),
             wh_build_trigger: env("WH_BUILD_TRIGGER", String::new())?,
+            wh_secret: env("WH_SECRET", String::new())?,
             wh_user_agent: env("WH_APP_USER_AGENT", String::new())?,
         })
     }

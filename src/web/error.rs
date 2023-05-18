@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{
     storage::PathNotFoundError,
@@ -133,6 +133,12 @@ impl From<anyhow::Error> for AxumNope {
 }
 
 pub(crate) type AxumResult<T> = Result<T, AxumNope>;
+
+pub fn bad_request(err: impl Into<anyhow::Error>) -> ErrorResponse {
+    let err: anyhow::Error = err.into();
+    warn!(?err, "Internal server error");
+    ErrorResponse::from((StatusCode::BAD_REQUEST, format!("{}", err)))
+}
 
 pub fn internal_error(err: impl Into<anyhow::Error>) -> ErrorResponse {
     let err: anyhow::Error = err.into();

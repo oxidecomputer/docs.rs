@@ -1,17 +1,20 @@
 use axum::{
     headers::Header,
     response::{IntoResponse, Result},
-    Extension, Json, TypedHeader,
+    Extension, TypedHeader, extract::RawBody,
 };
 use github_app_authenticator::{TokenRequest, permissions::{Permissions, ReadWrite}};
+use hmac::{Hmac, Mac};
 use http::{StatusCode, HeaderName};
+use hyper::{Body, body::to_bytes};
 use octorust::{auth::Credentials};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use std::sync::Arc;
 use tracing::{error, info, warn, debug};
 
-use crate::{web::error::internal_error, BuildQueue, Config, utils::spawn_blocking};
+use crate::{web::error::{internal_error, bad_request}, BuildQueue, Config, utils::spawn_blocking};
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
@@ -132,8 +135,21 @@ pub(crate) async fn github_webhook_handler(
     Extension(config): Extension<Arc<Config>>,
     Extension(queue): Extension<Arc<BuildQueue>>,
     TypedHeader(installation_id): TypedHeader<GitHubInstallationIdHeader>,
-    Json(event): Json<Event>,
+    TypedHeader(signature): TypedHeader<GitHubSignatureHeader>,
+    RawBody(body): RawBody<Body>,
 ) -> Result<impl IntoResponse> {
+    // Check the request signature
+    let body = to_bytes(body).await.map_err(bad_request)?;
+    let mut mac = <Hmac::<Sha256> as Mac>::new_from_slice(config.wh_secret.as_bytes()).map_err(internal_error)?;
+    mac.update(&body);
+    let verified = mac.verify_slice(&signature.0).is_ok();
+
+    if !verified {
+        return Err(StatusCode::BAD_REQUEST.into());
+    }
+
+    let event: Event = serde_json::from_slice(&body).map_err(bad_request)?;
+
     info!(?event, "Received call");
 
     let processable = extract_request(event).ok_or_else(|| {
@@ -251,6 +267,36 @@ impl Header for GitHubInstallationIdHeader {
         for value in values {
             if let Some(id) = value.to_str().ok().and_then(|value| value.parse::<u32>().ok()) {
                 return Ok(Self(id))
+            }
+        }
+
+        Err(axum::headers::Error::invalid())
+    }
+
+    fn encode<E: Extend<http::HeaderValue>>(&self, _values: &mut E) {
+        unimplemented!()
+    }
+}
+
+static GITHUB_SIGNATURE_HEADER_NAME: HeaderName = HeaderName::from_static("x-hub-signature-256");
+
+#[derive(Debug)]
+pub(crate) struct GitHubSignatureHeader(Vec<u8>);
+
+impl Header for GitHubSignatureHeader {
+    fn name() -> &'static http::HeaderName {
+        &GITHUB_SIGNATURE_HEADER_NAME
+    }
+
+    fn decode<'i, I>(values: &mut I) -> std::result::Result<Self, axum::headers::Error>
+        where
+            Self: Sized,
+            I: Iterator<Item = &'i http::HeaderValue> {
+        for value in values {
+            let sig = value.to_str().ok().and_then(|value| hex::decode(value.trim_start_matches("sha256=")).ok());
+
+            if let Some(sig) = sig {
+                return Ok(Self(sig))
             }
         }
 

@@ -89,11 +89,14 @@ memmap2 = "0.5.0"
 axum = { version = "0.6.1", features = ["headers", "macros"] }
 axum-extra = { version = "0.7.0", features = ["cookie-signed"] }
 github-app-authenticator = { git = "https://github.com/oxidecomputer/github-app-authenticator.git" }
+hex = "0.4.3"
+hmac = "0.12.1"
 hyper = { version = "0.14.15", default-features = false }
 mime = "0.3.16"
 oauth2 = "4.3.0"
 octorust = { git = "https://github.com/oxidecomputer/third-party-api-clients.git", branch = "response-type" }
 percent-encoding = "2.2.0"
+sha2 = "0.10.6"
 time = "0.3"
 tower = "0.4.11"
 tower-service = "0.3.2"
