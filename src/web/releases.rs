@@ -283,7 +283,7 @@ impl_axum_webpage! {
 pub(crate) async fn home_page(Extension(pool): Extension<Pool>) -> AxumResult<impl IntoResponse> {
     let recent_releases = spawn_blocking(move || {
         let mut conn = pool.get()?;
-        get_releases(&mut conn, 1, RELEASES_IN_HOME, Order::ReleaseTime, true)
+        get_releases(&mut conn, 1, RELEASES_IN_HOME, Order::ReleaseTime, false)
     })
     .await?;
 
