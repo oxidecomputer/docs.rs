@@ -165,7 +165,7 @@ pub(super) async fn authorize(
 
     jar = jar.add(create_authorization_cookie(SESSION_DURATION).map_err(internal_error)?);
 
-    info!(?id_token.sub, "Authorized oauth login");
+    info!(?id_token.sub, ?id_token.hd, ?id_token.email_verified, "Authorized oauth login");
 
     Ok((jar, Redirect::to(&return_to)).into_response())
 }
