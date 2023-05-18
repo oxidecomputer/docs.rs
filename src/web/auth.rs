@@ -30,7 +30,7 @@ use crate::{web::error::internal_error, Config};
 use super::AppState;
 
 // Duration (in seconds) that a user will remain logged in for
-const SESSION_DURATION: i64 = 60;
+const SESSION_DURATION: i64 = 24 * 60 * 60;
 
 // Duration (in seconds) that a user must complete a log in attempt before the csrf token expires
 const CSRF_DURATION: i64 = 5 * 60;
