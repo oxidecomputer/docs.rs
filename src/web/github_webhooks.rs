@@ -148,7 +148,7 @@ pub(crate) async fn github_webhook_handler(
 
     let event: Event = serde_json::from_slice(&body).map_err(bad_request)?;
 
-    info!(?event, "Received call");
+    info!("Handling incoming GitHub webhook");
 
     let processable = extract_request(event).ok_or_else(|| {
         debug!("Skipping unprocessable comment");
