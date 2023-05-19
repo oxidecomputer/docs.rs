@@ -17,7 +17,7 @@ use google_cloud_storage::{
 };
 use std::io::Write;
 use tokio::runtime::Runtime;
-use tracing::{info, warn, debug, trace};
+use tracing::{warn, debug, trace};
 
 use crate::{Config, Metrics};
 

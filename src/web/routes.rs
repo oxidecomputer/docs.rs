@@ -6,7 +6,7 @@ use super::{
     error::AxumNope,
     github_webhooks::github_webhook_handler,
     metrics::request_recorder,
-    rustdoc::add_to_queue,
+    rustdoc::add_to_github_queue,
     site_features::SiteFeatures,
     statics::build_static_router,
     AppState,
@@ -285,16 +285,13 @@ pub(super) fn build_axum_routes(config: Arc<Config>) -> AxumRouter {
             "/:name/:version/:target/*path",
             get_rustdoc(super::rustdoc::rustdoc_html_server_handler),
         )
+        .route("/api/queue/github", post(add_to_github_queue))
         .route_layer(middleware::from_fn(authorized))
         .fallback(fallback);
 
-    let api_routes: AxumRouter<AppState> =
-        AxumRouter::new().route("/api/queue", post(add_to_queue));
-
     let mut router: AxumRouter<AppState> = AxumRouter::new()
         .merge(pubilc_routes)
-        .merge(base_routes)
-        .merge(api_routes);
+        .merge(base_routes);
 
     if features.about {
         router = router.merge(

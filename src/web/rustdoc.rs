@@ -18,7 +18,7 @@ use crate::{
         page::TemplateData,
         MatchSemver, MetaData,
     },
-    BuildQueue, Config, Metrics, Storage, RUSTDOC_STATIC_STORAGE_PREFIX,
+    BuildQueue, Config, Metrics, Storage, RUSTDOC_STATIC_STORAGE_PREFIX, github::clone_url,
 };
 use anyhow::{anyhow, Context as _};
 use axum::{
@@ -691,18 +691,16 @@ pub(crate) async fn rustdoc_html_server_handler(
 
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct QueuePayload {
+    owner: String,
+    repo: String,
+    branch: String,
     name: String,
-    version: String,
-    registry: Option<String>,
-    github: Option<String>,
 }
 
-/// Add a crate to the build queue that is hosted on either a GitHub repository or a crate registry.
-/// If neither is provided, then it is assumed that the crate should be pulled from the crates.io
-/// registry.
+/// Add a crate to the build queue that is hosted in a GitHub repository.
 #[allow(clippy::too_many_arguments)]
 #[instrument(skip_all)]
-pub(crate) async fn add_to_queue(
+pub(crate) async fn add_to_github_queue(
     Extension(pool): Extension<Pool>,
     Extension(queue): Extension<Arc<BuildQueue>>,
     Json(payload): Json<QueuePayload>,
@@ -714,24 +712,8 @@ pub(crate) async fn add_to_queue(
             let mut conn = pool.get()?;
 
             let priority = get_crate_priority(&mut conn, &payload.name)?;
-
-            if let Some(github_url) = &payload.github {
-                queue.add_github_crate(
-                    &payload.name,
-                    &payload.version,
-                    priority,
-                    github_url.as_str(),
-                )?
-            } else if let Some(registry) = &payload.registry {
-                queue.add_crate(
-                    &payload.name,
-                    &payload.version,
-                    priority,
-                    Some(registry.as_str()),
-                )?
-            } else {
-                queue.add_crate(&payload.name, &payload.version, priority, None)?
-            };
+            let clone_url = clone_url(&payload.owner, &payload.repo);
+            queue.add_github_crate(&payload.name, &payload.branch, priority, &clone_url)?;
 
             Ok(StatusCode::ACCEPTED.into_response())
         }

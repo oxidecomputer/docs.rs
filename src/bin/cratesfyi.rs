@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context as _, Error, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use docs_rs::cdn::CdnBackend;
 use docs_rs::db::{self, add_path_into_database, Overrides, Pool, PoolClient};
-use docs_rs::github::get_build_token;
+use docs_rs::github::{get_build_token, get_installation_for_owner, clone_url};
 use docs_rs::repositories::RepositoryStatsUpdater;
 use docs_rs::utils::{
     get_config, queue_builder, remove_crate_priority, set_crate_priority, ConfigName,
@@ -218,25 +218,21 @@ enum QueueSubcommand {
     },
 
     AddGitHub {
-        /// Crate name
-        #[arg(name = "CRATE_NAME")]
-        crate_name: String,
+        /// Owner of the repo to build
+        #[arg(name = "GITHUB_OWNER")]
+        owner: String,
 
         /// Repo to build
         #[arg(name = "GITHUB_REPO")]
-        github_repo: String,
+        repo: String,
 
         /// Branch of the repo to build
         #[arg(name = "GITHUB_BRANCH")]
-        github_branch: String,
+        branch: String,
 
-        // Clone url of the GitHub repo
-        #[arg(name = "GITHUB_URL")]
-        clone_url: String,
-
-        // GitHub installation to authenticate against
-        #[arg(name = "INSTALLATION_ID")]
-        installation: u32,
+        /// Crate name
+        #[arg(name = "CRATE_NAME")]
+        crate_name: String,
 
         /// Priority of build (new crate builds get priority 0)
         #[arg(
@@ -270,24 +266,28 @@ impl QueueSubcommand {
             )?,
 
             Self::AddGitHub {
+                owner,
+                repo,
+                branch,
                 crate_name,
-                github_repo,
-                github_branch,
-                clone_url,
-                installation,
                 build_priority,
             } => {
-                let app = &ctx.config()?.wh_app_authenticator;
+                let config = &ctx.config()?;
+                let app = &config.wh_app_authenticator;
+
+                let installation = ctx.runtime()?.block_on(get_installation_for_owner(&app, &owner))?.ok_or_else(|| anyhow!("Failed to find an installation for the requested owner"))?;
                 let auth = app.installation_authenticator(installation);
                 let token = ctx
                     .runtime()?
-                    .block_on(async { get_build_token(&auth, github_repo).await })?;
+                    .block_on(async { get_build_token(&auth, repo.clone()).await })?;
+
+                let clone_url = clone_url(&owner, &repo);
                 let tokened_url =
                     clone_url.replace("https://", &format!("https://x-access-token:{}@", token));
 
                 ctx.build_queue()?.add_github_crate(
                     &crate_name,
-                    &github_branch,
+                    &branch,
                     build_priority,
                     &tokened_url,
                 )?
