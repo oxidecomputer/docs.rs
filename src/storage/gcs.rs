@@ -53,18 +53,25 @@ impl GcsBackend {
         })
     }
 
+    #[instrument(skip(self))]
     fn meta(&self, path: &str) -> Result<Object> {
         self.runtime.block_on(async {
-            let object = self
+            debug!("Fetching meta for file");
+
+            let response = self
                 .client
                 .get_object(&GetObjectRequest {
                     bucket: self.bucket.clone(),
                     object: path.to_string(),
                     ..Default::default()
                 })
-                .await?;
+                .await;
 
-            Ok(object)
+            if let Err(err) = &response {
+                warn!(?err, "Failed to fetch file meta");
+            }
+
+            Ok(response?)
         })
     }
 
