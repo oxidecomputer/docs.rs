@@ -133,6 +133,8 @@ pub fn start_daemon<C: Context + Send + Sync + 'static>(
     context: C,
     socket_addr: Option<String>,
     enable_registry_watcher: bool,
+    enable_metrics: bool,
+    enable_cdn_invalidation: bool,
 ) -> Result<(), Error> {
     let context = Arc::new(context);
 
@@ -159,8 +161,13 @@ pub fn start_daemon<C: Context + Send + Sync + 'static>(
         })
         .unwrap();
 
-    start_background_repository_stats_updater(&*context)?;
-    start_background_cdn_invalidator(&*context)?;
+    if enable_metrics {
+        start_background_repository_stats_updater(&*context)?;
+    }
+
+    if enable_cdn_invalidation {
+        start_background_cdn_invalidator(&*context)?;
+    }
 
     // NOTE: if a error occurred earlier in `start_daemon`, the server will _not_ be joined -
     // instead it will get killed when the process exits.

@@ -133,6 +133,14 @@ enum CommandLine {
         /// Enable or disable the registry watcher to automatically enqueue newly published crates
         #[arg(long = "registry-watcher", default_value = "enabled", value_enum)]
         registry_watcher: Toggle,
+
+        /// Enable or disable the stat collector
+        #[arg(long = "metrics", default_value = "enabled", value_enum)]
+        metrics: Toggle,
+
+        /// Enable or disable the background CDN invalidator
+        #[arg(long = "cdn-invalidation", default_value = "enabled", value_enum)]
+        cdn_invalidation: Toggle,
     },
 
     /// Database operations
@@ -182,11 +190,15 @@ impl CommandLine {
             Self::Daemon {
                 socket_addr,
                 registry_watcher,
+                metrics,
+                cdn_invalidation
             } => {
                 docs_rs::utils::start_daemon(
                     ctx,
                     Some(socket_addr),
                     registry_watcher == Toggle::Enabled,
+                    metrics == Toggle::Enabled,
+                    cdn_invalidation == Toggle::Enabled,
                 )?;
             }
             Self::Database { subcommand } => subcommand.handle_args(ctx)?,
