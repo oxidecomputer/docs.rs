@@ -17,7 +17,7 @@ use google_cloud_storage::{
 };
 use std::io::Write;
 use tokio::runtime::Runtime;
-use tracing::{warn, debug, trace};
+use tracing::{warn, debug, trace, instrument};
 
 use crate::{Config, Metrics};
 
@@ -80,6 +80,7 @@ impl GcsBackend {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     pub(super) fn get(
         &self,
         path: &str,
@@ -110,12 +111,16 @@ impl GcsBackend {
             let mut chunks = self
                 .client
                 .download_streamed_object(&request, &request_range)
-                .await?;
+                .await
+                .map_err(|err| {
+                    warn!(?err, "Failed to start downloading streamed object");
+                    err
+                })?;
 
             let mut content = crate::utils::sized_buffer::SizedBuffer::new(max_size);
 
             while let Some(chunk) = chunks.next().await {
-                trace!("Received chunk");
+                trace!(ok = ?chunk.is_ok(), "Received chunk");
                 content.write_all(&chunk?)?;
             }
 

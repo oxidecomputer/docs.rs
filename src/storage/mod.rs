@@ -24,7 +24,7 @@ use std::{
     sync::Arc,
 };
 use tokio::runtime::Runtime;
-use tracing::{instrument, trace};
+use tracing::{instrument, trace, warn};
 
 const MAX_CONCURRENT_UPLOADS: usize = 1000;
 
@@ -285,6 +285,7 @@ impl Storage {
         Ok(blob)
     }
 
+    #[instrument]
     fn get_index_filename(&self, archive_path: &str) -> Result<PathBuf> {
         // remote/folder/and/x.zip.index
         let remote_index_path = format!("{archive_path}.index");
@@ -294,15 +295,23 @@ impl Storage {
             .join(&remote_index_path);
 
         if !local_index_path.exists() {
-            let index_content = self.get(&remote_index_path, std::usize::MAX)?.content;
+            let index_content = self.get(&remote_index_path, std::usize::MAX);
 
-            fs::create_dir_all(
-                local_index_path
-                    .parent()
-                    .ok_or_else(|| anyhow!("index path without parent"))?,
-            )?;
-            let mut file = fs::File::create(&local_index_path)?;
-            file.write_all(&index_content)?;
+            match index_content {
+                Ok(content) => {
+                    fs::create_dir_all(
+                        local_index_path
+                            .parent()
+                            .ok_or_else(|| anyhow!("index path without parent"))?,
+                    )?;
+                    let mut file = fs::File::create(&local_index_path)?;
+                    file.write_all(&content.content)?;
+                }
+                Err(err) => {
+                    warn!(?err, "Failed to extract file from index");
+                    return Err(err)
+                }
+            }
         }
 
         Ok(local_index_path)
