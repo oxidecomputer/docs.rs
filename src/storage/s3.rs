@@ -16,7 +16,7 @@ use futures_util::{
 };
 use std::{io::Write, sync::Arc};
 use tokio::runtime::Runtime;
-use tracing::{error, warn};
+use tracing::{error, warn, trace, debug};
 
 const PUBLIC_ACCESS_TAG: &str = "static-cloudfront-access";
 const PUBLIC_ACCESS_VALUE: &str = "allow";
@@ -163,6 +163,8 @@ impl S3Backend {
         range: Option<FileRange>,
     ) -> Result<Blob, Error> {
         self.runtime.block_on(async {
+            trace!(?range, "Fetch file from S3");
+
             let res = self
                 .client
                 .get_object()
@@ -197,13 +199,17 @@ impl S3Backend {
                 .and_then(|dt| dt.to_chrono_utc().ok())
                 .unwrap_or_else(Utc::now);
 
+            let data = content.into_inner();
+
             let compression = res.content_encoding.and_then(|s| s.parse().ok());
+
+            debug!(len = ?data.len(), ?res.content_type, ?compression, "Downloaded data");
 
             Ok(Blob {
                 path: path.into(),
                 mime: res.content_type.unwrap(),
                 date_updated,
-                content: content.into_inner(),
+                content: data,
                 compression,
             })
         })

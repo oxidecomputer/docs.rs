@@ -301,7 +301,7 @@ pub(crate) async fn source_browser_handler(
         (None, None)
     };
 
-    debug!(?file, ?file_content, "Fetched file contents");
+    debug!(?file, "Fetched file contents");
 
     let current_folder = if let Some(last_slash_pos) = path.rfind('/') {
         &path[..last_slash_pos + 1]

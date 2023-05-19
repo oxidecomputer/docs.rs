@@ -17,7 +17,7 @@ use google_cloud_storage::{
 };
 use std::io::Write;
 use tokio::runtime::Runtime;
-use tracing::{info, warn};
+use tracing::{info, warn, debug, trace};
 
 use crate::{Config, Metrics};
 
@@ -77,7 +77,7 @@ impl GcsBackend {
     }
 
     pub(super) fn set_public_access(&self, _path: &str, _public: bool) -> Result<()> {
-        Err(anyhow!("Public access is not supported"))
+        Ok(())
     }
 
     pub(super) fn get(
@@ -89,46 +89,54 @@ impl GcsBackend {
         let meta = self.meta(path)?;
 
         self.runtime.block_on(async {
+            let request = GetObjectRequest {
+                bucket: self.bucket.clone(),
+                object: path.to_string(),
+                ..Default::default()
+            };
+
+            trace!(?request, ?range, "Fetch file from GCS");
+
+            let request_range = range
+                .map(|range| {
+                    let mut r = Range::default();
+                    r.0 = range.clone().min();
+                    r.1 = range.max();
+
+                    r
+                })
+                .unwrap_or_else(|| Range::default());
+
             let mut chunks = self
                 .client
-                .download_streamed_object(
-                    &GetObjectRequest {
-                        bucket: self.bucket.clone(),
-                        object: path.to_string(),
-                        ..Default::default()
-                    },
-                    &range
-                        .map(|range| {
-                            let mut r = Range::default();
-                            r.0 = range.clone().min();
-                            r.1 = range.max();
-
-                            r
-                        })
-                        .unwrap_or_else(|| Range::default()),
-                )
+                .download_streamed_object(&request, &request_range)
                 .await?;
 
             let mut content = crate::utils::sized_buffer::SizedBuffer::new(max_size);
 
             while let Some(chunk) = chunks.next().await {
+                trace!("Received chunk");
                 content.write_all(&chunk?)?;
             }
 
+            let data = content.into_inner();
+
             let compression = meta.content_encoding.and_then(|s| s.parse().ok());
+
+            debug!(len = ?data.len(), ?meta.content_type, ?compression, "Downloaded data");
 
             Ok(Blob {
                 path: path.into(),
                 mime: meta.content_type.unwrap(),
                 date_updated: Utc::now(),
-                content: content.into_inner(),
+                content: data,
                 compression,
             })
         })
     }
 
     pub(super) fn start_storage_transaction(&self) -> GcsStorageTransaction {
-        unimplemented!("GCS storage transactions are not supported")
+        GcsStorageTransaction { gcs: self }
     }
 }
 
@@ -166,7 +174,7 @@ impl<'a> StorageTransaction for GcsStorageTransaction<'a> {
                             .client
                             .upload_object(&req, blob.content.clone(), &upload_type)
                             .map_ok(|_| {
-                                info!("Uploaded to GCS");
+                                debug!("Uploaded to GCS");
                                 self.gcs.metrics.uploaded_files_total.inc();
                             })
                             .map_err(|err| {
