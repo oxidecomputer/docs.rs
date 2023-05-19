@@ -295,10 +295,12 @@ impl Storage {
             .join(&remote_index_path);
 
         if !local_index_path.exists() {
+            trace!("Local cache does not exist. Fetching from remote");
             let index_content = self.get(&remote_index_path, std::usize::MAX);
 
             match index_content {
                 Ok(content) => {
+                    trace!("Retrieved remote content");
                     fs::create_dir_all(
                         local_index_path
                             .parent()
@@ -306,12 +308,15 @@ impl Storage {
                     )?;
                     let mut file = fs::File::create(&local_index_path)?;
                     file.write_all(&content.content)?;
+                    trace!("Created local cache of remote content");
                 }
                 Err(err) => {
                     warn!(?err, "Failed to extract file from index");
                     return Err(err)
                 }
             }
+        } else {
+            trace!("Using locally cached index file")
         }
 
         Ok(local_index_path)
