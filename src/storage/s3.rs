@@ -16,7 +16,7 @@ use futures_util::{
 };
 use std::{io::Write, sync::Arc};
 use tokio::runtime::Runtime;
-use tracing::{error, warn, trace, debug};
+use tracing::{error, warn, trace, debug, instrument};
 
 const PUBLIC_ACCESS_TAG: &str = "static-cloudfront-access";
 const PUBLIC_ACCESS_VALUE: &str = "allow";
@@ -156,6 +156,7 @@ impl S3Backend {
         })
     }
 
+    #[instrument(skip(self))]
     pub(super) fn get(
         &self,
         path: &str,

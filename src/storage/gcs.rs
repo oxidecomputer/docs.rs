@@ -1,4 +1,4 @@
-use std::{borrow::Cow, sync::Arc};
+use std::{sync::Arc, collections::HashMap};
 
 use anyhow::{anyhow, Result};
 use chrono::Utc;
@@ -11,7 +11,7 @@ use google_cloud_storage::{
         delete::DeleteObjectRequest,
         get::GetObjectRequest,
         list::ListObjectsRequest,
-        upload::{Media, UploadObjectRequest, UploadType},
+        upload::{UploadObjectRequest, UploadType},
         Object,
     },
 };
@@ -133,9 +133,8 @@ impl GcsBackend {
 
             let data = content.into_inner();
 
-            let compression = meta.content_encoding.and_then(|s| s.parse().ok());
-
-            debug!(len = ?data.len(), ?meta.content_type, ?compression, "Downloaded data");
+            let compression = meta.metadata.as_ref().and_then(|m| m.get("CompressionAlg").and_then(|s| s.parse().ok()));
+            debug!(len = ?data.len(), ?meta.content_type, ?meta.metadata, ?compression, "Downloaded data");
 
             Ok(Blob {
                 path: path.into(),
@@ -162,9 +161,18 @@ impl<'a> StorageTransaction for GcsStorageTransaction<'a> {
             let requests = batch
                 .iter()
                 .map(|blob| {
-                    let mut media = Media::new(blob.path.clone());
-                    media.content_type = Cow::Owned(blob.mime.clone());
-                    let upload_type = UploadType::Simple(media);
+                    let mut meta = HashMap::new();
+
+                    if let Some(compression) = blob.compression.map(|alg| alg.to_string()) {
+                        meta.insert("CompressionAlg".to_string(), compression);
+                    }
+
+                    let upload_type = UploadType::Multipart(Box::new(Object {
+                        name: blob.path.clone(),
+                        content_type: Some(blob.mime.clone()),
+                        metadata: Some(meta),
+                        ..Default::default()
+                    }));
                     let req = UploadObjectRequest {
                         bucket: self.gcs.bucket.clone(),
                         ..Default::default()
