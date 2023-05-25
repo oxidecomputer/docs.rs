@@ -22,6 +22,7 @@ pub(crate) struct QueuedCrate {
     pub(crate) priority: i32,
     pub(crate) registry: Option<String>,
     pub(crate) github: Option<String>,
+    pub(crate) workspace: bool,
 }
 
 #[derive(Debug)]
@@ -97,16 +98,17 @@ impl BuildQueue {
         branch: &str,
         priority: i32,
         github_url: &str,
+        workspace: bool,
     ) -> Result<()> {
         self.db.get()?.execute(
-            "INSERT INTO queue (name, version, priority, github)
-             VALUES ($1, $2, $3, $4)
+            "INSERT INTO queue (name, version, priority, github, workspace)
+             VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (name, version) DO UPDATE
                 SET priority = EXCLUDED.priority,
                     github = EXCLUDED.github,
                     attempt = 0
             ;",
-            &[&name, &branch, &priority, &github_url],
+            &[&name, &branch, &priority, &github_url, &workspace],
         )?;
         Ok(())
     }
@@ -150,7 +152,7 @@ impl BuildQueue {
 
     pub(crate) fn queued_crates(&self) -> Result<Vec<QueuedCrate>> {
         let query = self.db.get()?.query(
-            "SELECT id, name, version, priority, registry, github
+            "SELECT id, name, version, priority, registry, github, workspace
              FROM queue
              WHERE attempt < $1
              ORDER BY priority ASC, attempt ASC, id ASC",
@@ -166,6 +168,7 @@ impl BuildQueue {
                 priority: row.get("priority"),
                 registry: row.get("registry"),
                 github: row.get("github"),
+                workspace: row.get("workspace"),
             })
             .collect())
     }
@@ -202,7 +205,7 @@ impl BuildQueue {
         // available one.
         let to_process = match transaction
             .query_opt(
-                "SELECT id, name, version, priority, registry, github
+                "SELECT id, name, version, priority, registry, github, workspace
                  FROM queue
                  WHERE attempt < $1
                  ORDER BY priority ASC, attempt ASC, id ASC
@@ -217,6 +220,7 @@ impl BuildQueue {
                 priority: row.get("priority"),
                 registry: row.get("registry"),
                 github: row.get("github"),
+                workspace: row.get("workspace"),
             }) {
             Some(krate) => krate,
             None => return Ok(()),
@@ -475,7 +479,12 @@ impl BuildQueue {
 
             trace!("Updated toolchain");
 
-            builder.build_package(&krate.name, &krate.version, kind)?;
+            if krate.workspace {
+                builder.build_workspace_packages(&krate.name, &krate.version, kind)?;
+            } else {
+                builder.build_package(&krate.name, &krate.version, kind)?;
+            }
+
             Ok(())
         })?;
 

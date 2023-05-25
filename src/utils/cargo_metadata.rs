@@ -4,6 +4,32 @@ use rustwide::{cmd::Command, Toolchain, Workspace};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use tracing::trace;
+
+pub(crate) struct CargoWorkspace {
+    pub(crate) meta: DeserializedMetadata
+}
+
+impl CargoWorkspace {
+    pub(crate) fn load_from_rustwide(
+        workspace: &Workspace,
+        toolchain: &Toolchain,
+        source_dir: &Path,
+    ) -> Result<Self> {
+        let res = Command::new(workspace, toolchain.cargo())
+            .args(&["metadata", "--format-version", "1"])
+            .cd(source_dir)
+            .log_output(false)
+            .run_capture()?;
+        let [metadata] = res.stdout_lines() else {
+            bail!("invalid output returned by `cargo metadata`")
+        };
+
+        Ok(Self {
+            meta: serde_json::from_str::<DeserializedMetadata>(metadata)?
+        })
+    }
+}
 
 pub(crate) struct CargoMetadata {
     root: Package,
@@ -47,8 +73,12 @@ impl CargoMetadata {
             Some(root_name) => metadata
                 .workspace_members
                 .iter()
-                .find(|member| member.starts_with(root_name))
-                .ok_or_else(|| anyhow!("Failed to find workspace member for {}", root_name))?,
+                .find(|member| {
+                    trace!(member = ?member.name(), ?root_name, "Test workspace member for root");
+                    member.name() == Some(&root_name)
+                })
+                .ok_or_else(|| anyhow!("Failed to find workspace member for {}", root_name))?
+                .value(),
             None => metadata
                 .resolve
                 .root
@@ -81,7 +111,7 @@ impl CargoMetadata {
     }
 }
 
-#[derive(Deserialize, Serialize, Default)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 pub(crate) struct Package {
     pub(crate) id: String,
     pub(crate) name: String,
@@ -124,7 +154,7 @@ impl Package {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct Target {
     pub(crate) name: String,
     #[cfg(not(test))]
@@ -145,7 +175,7 @@ impl Target {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct Dependency {
     pub(crate) name: String,
     pub(crate) req: String,
@@ -154,26 +184,39 @@ pub(crate) struct Dependency {
     pub(crate) optional: bool,
 }
 
-#[derive(Deserialize, Serialize)]
-struct DeserializedMetadata {
-    packages: Vec<Package>,
-    resolve: DeserializedResolve,
-    workspace_members: Vec<String>,
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DeserializedMetadata {
+    pub(crate) packages: Vec<Package>,
+    pub(crate) resolve: DeserializedResolve,
+    pub(crate) workspace_members: Vec<WorkspaceMember>,
 }
 
-#[derive(Deserialize, Serialize)]
-struct DeserializedResolve {
-    root: Option<String>,
-    nodes: Vec<DeserializedResolveNode>,
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct DeserializedResolve {
+    pub(crate) root: Option<String>,
+    pub(crate) nodes: Vec<DeserializedResolveNode>,
 }
 
-#[derive(Deserialize, Serialize)]
-struct DeserializedResolveNode {
-    id: String,
-    deps: Vec<DeserializedResolveDep>,
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct DeserializedResolveNode {
+    pub(crate) id: String,
+    pub(crate) deps: Vec<DeserializedResolveDep>,
 }
 
-#[derive(Deserialize, Serialize)]
-struct DeserializedResolveDep {
-    pkg: String,
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct DeserializedResolveDep {
+    pub(crate) pkg: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct WorkspaceMember(String);
+
+impl WorkspaceMember {
+    pub fn value(&self) -> &str {
+        &self.0
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        self.0.split(' ').nth(0)
+    }
 }

@@ -903,6 +903,20 @@ pub fn migrate(version: Option<Version>, conn: &mut Client) -> crate::error::Res
                 ALTER TABLE queue DROP COLUMN github;
             "
         ),
+        sql_migration!(
+            context,
+            40,
+            // description
+            "Support building all crates in a workspace",
+            // upgrade query
+            "
+                ALTER TABLE queue ADD COLUMN workspace bool NOT NULL DEFAULT FALSE;
+            ",
+            // downgrade query
+            "
+                ALTER TABLE queue DROP COLUMN workspace;
+            "
+        ),
     ];
 
     for migration in migrations {

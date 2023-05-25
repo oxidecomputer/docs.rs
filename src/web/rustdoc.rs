@@ -713,7 +713,7 @@ pub(crate) async fn add_to_github_queue(
 
             let priority = get_crate_priority(&mut conn, &payload.name)?;
             let clone_url = clone_url(&payload.owner, &payload.repo);
-            queue.add_github_crate(&payload.name, &payload.branch, priority, &clone_url)?;
+            queue.add_github_crate(&payload.name, &payload.branch, priority, &clone_url, false)?;
 
             Ok(StatusCode::ACCEPTED.into_response())
         }

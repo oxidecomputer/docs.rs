@@ -10,7 +10,7 @@ use crate::repositories::RepositoryStatsUpdater;
 use crate::storage::{rustdoc_archive_path, source_archive_path};
 use crate::utils::{
     copy_dir_all, parse_rustc_version, queue_builder, report_error, set_config, CargoMetadata,
-    ConfigName,
+    ConfigName, CargoWorkspace,
 };
 use crate::RUSTDOC_STATIC_STORAGE_PREFIX;
 use crate::{db::blacklist::is_blacklisted, utils::MetadataPackage};
@@ -34,6 +34,7 @@ const COMPONENTS: &[&str] = &["llvm-tools-preview", "rustc-dev", "rustfmt"];
 const DUMMY_CRATE_NAME: &str = "empty-library";
 const DUMMY_CRATE_VERSION: &str = "1.0.0";
 
+#[derive(Clone)]
 pub enum PackageKind<'a> {
     Local(&'a Path),
     CratesIo,
@@ -123,6 +124,7 @@ impl RustwideBuilder {
     }
 
     pub fn purge_caches(&self) -> Result<()> {
+        trace!("Purge all build caches");
         self.workspace
             .purge_all_caches()
             .map_err(FailureError::compat)?;
@@ -338,6 +340,46 @@ impl RustwideBuilder {
         self.build_package(name, &branch, PackageKind::GitHub { name, url })
     }
 
+    pub fn build_workspace_packages(
+        &mut self,
+        workspace: &str,
+        version: &str,
+        kind: PackageKind<'_>,
+    ) -> Result<bool> {
+        trace!("Building crate workspace");
+
+        let mut conn = self.db.get()?;
+        self.update_toolchain()?;
+
+        let mut build_dir = self.workspace.build_dir(&format!("{workspace}-{version}"));
+        build_dir.purge().map_err(FailureError::compat)?;
+
+        trace!("Determined build directory");
+
+        let krate = match kind {
+            PackageKind::GitHub { url, .. } => Ok(Crate::git_branch(url, workspace, version)),
+            _ => Err(anyhow!("Only GitHub is supported for workspace builds")),
+        }?;
+        krate.fetch(&self.workspace).map_err(FailureError::compat)?;
+
+        let crates = build_dir.build(&self.toolchain, &krate, self.prepare_sandbox(&Limits::for_crate(&mut conn, DUMMY_CRATE_NAME)?)).run(|build| {
+            (|| -> Result<_> {
+                let meta = CargoWorkspace::load_from_rustwide(&self.workspace, &self.toolchain, &build.host_source_dir())?;
+                trace!(?meta.meta.workspace_members, "Determined workspace members");
+
+                Ok(meta.meta.workspace_members)
+            })()
+            .map_err(|e| failure::Error::from_boxed_compat(e.into()))
+        }).map_err(|err| anyhow!("Failed to determine workspace members {:?}", err))?;
+
+        for krate in crates {
+            debug!(?krate, name = ?krate.name(), "Building workspace crate");
+            self.build_package(krate.name().unwrap(), version, kind.clone())?;
+        }
+
+        Ok(true)
+    }
+
     pub fn build_package(
         &mut self,
         name: &str,
@@ -405,7 +447,7 @@ impl RustwideBuilder {
             .build(&self.toolchain, &krate, self.prepare_sandbox(&limits))
             .run(|build| {
                 (|| -> Result<bool> {
-                    trace!("Running build");
+                    trace!("Starting build");
 
                     use docsrs_metadata::BuildTargets;
 
@@ -416,6 +458,8 @@ impl RustwideBuilder {
                         default_target,
                         other_targets,
                     } = metadata.targets(self.config.include_default_targets);
+
+                    trace!("Performing initial build");
 
                     // Perform an initial build
                     let mut res =

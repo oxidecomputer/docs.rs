@@ -254,6 +254,15 @@ enum QueueSubcommand {
             default_value = "5"
         )]
         build_priority: i32,
+
+        /// Priority of build (new crate builds get priority 0)
+        #[arg(
+            name = "WORKSPACE",
+            short = 'w',
+            long = "workspace",
+            default_value = "false"
+        )]
+        workspace: bool,
     },
 
     /// Interactions with build queue priorities
@@ -283,6 +292,7 @@ impl QueueSubcommand {
                 branch,
                 crate_name,
                 build_priority,
+                workspace,
             } => {
                 let config = &ctx.config()?;
                 let app = &config.wh_app_authenticator;
@@ -302,6 +312,7 @@ impl QueueSubcommand {
                     &branch,
                     build_priority,
                     &tokened_url,
+                    workspace,
                 )?
             }
 

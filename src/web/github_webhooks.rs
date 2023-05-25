@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use axum::{
     extract::RawBody,
     headers::Header,
@@ -25,6 +26,7 @@ use crate::{
 #[serde(untagged)]
 pub enum Event {
     IssueComment(IssueCommentEvent),
+    PullRequest(PullRequestEvent),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -34,6 +36,17 @@ pub enum IssueCommentEvent {
         action: CreateAction,
         comment: Comment,
         issue: Issue,
+        repository: Repository,
+        installation: Installation,
+    },
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum PullRequestEvent {
+    Synchronize {
+        action: SynchronizeAction,
+        pull_request: PullRequest,
         repository: Repository,
         installation: Installation,
     },
@@ -55,7 +68,15 @@ pub struct Issue {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PullRequest {
-    url: String,
+    id: u32,
+    number: u32,
+    head: PullRequestHead,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PullRequestHead {
+    #[serde(rename = "ref")]
+    ref_: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -104,15 +125,28 @@ pub enum DeleteAction {
     Deleted,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SynchronizeAction {
+    Synchronize,
+}
+
 #[derive(Debug)]
-struct ToProcess {
+struct CommentPayload {
     comment: Comment,
     issue: Issue,
     repository: Repository,
     installation: Installation,
 }
 
-impl ToProcess {
+#[derive(Debug)]
+struct PullRequestPayload {
+    pull_request: PullRequest,
+    repository: Repository,
+    installation: Installation,
+}
+
+impl CommentPayload {
     fn build_trigger(wh_build_trigger: &str) -> Regex {
         let param_trigger = format!("^{} (.*?)$", wh_build_trigger);
         Regex::new(&param_trigger).unwrap()
@@ -162,21 +196,14 @@ pub(crate) async fn github_webhook_handler(
         StatusCode::OK
     })?;
 
-    let message = processable.get_message(&config).ok_or_else(|| {
-        debug!("Comment does not contain a docs message");
-        StatusCode::OK
-    })?;
-
-    info!(?message, "Extracted docs message");
-
-    let build = BuildCommand::matches(&message, &config).ok_or_else(|| StatusCode::OK)?;
+    let build = processable.into_command(&config).map_err(internal_error)?.ok_or_else(|| StatusCode::OK)?;
 
     info!(?build, "Processing build request");
 
     let authenticator = config
         .wh_app_authenticator
-        .installation_authenticator(processable.installation.id);
-    let token = get_build_token(&authenticator, processable.repository.name.clone())
+        .installation_authenticator(build.installation_id);
+    let token = get_build_token(&authenticator, build.repo.clone())
         .await
         .map_err(internal_error)?;
 
@@ -187,9 +214,9 @@ pub(crate) async fn github_webhook_handler(
     let pr = github
         .pulls()
         .get(
-            &processable.repository.owner.login,
-            &processable.repository.name,
-            processable.issue.number as i64,
+            &build.owner,
+            &build.repo,
+            build.issue_number as i64,
         )
         .await
         .map_err(internal_error)?;
@@ -198,16 +225,22 @@ pub(crate) async fn github_webhook_handler(
 
     info!(?branch, "Found branch name to build against");
 
-    let tokened_url = processable
-        .repository
+    let tokened_url = build
         .clone_url
         .replace("https://", &format!("https://x-access-token:{}@", token));
 
     let task = spawn_blocking(move || {
-        let res = queue.add_github_crate(&build.name, &branch, 0, &tokened_url);
+        let res = match &build.name {
+            Some(krate) => {
+                queue.add_github_crate(krate, &branch, 0, &tokened_url, false)
+            },
+            None => {
+                queue.add_github_crate(&build.repo, &branch, 0, &tokened_url, true)
+            }
+        };
 
         if res.is_ok() {
-            info!(?build.name, ?branch, ?processable.repository.clone_url, "Scheduled build");
+            info!(?build.name, ?branch, ?build.clone_url, "Scheduled build");
         }
 
         res
@@ -223,7 +256,7 @@ pub(crate) async fn github_webhook_handler(
     }
 }
 
-fn extract_request(event: Event) -> Option<ToProcess> {
+fn extract_request(event: Event) -> Option<Box<dyn IntoBuildCommand + Send + Sync>> {
     match event {
         Event::IssueComment(issue_comment) => match issue_comment {
             IssueCommentEvent::Created {
@@ -232,13 +265,25 @@ fn extract_request(event: Event) -> Option<ToProcess> {
                 repository,
                 installation,
                 ..
-            } => issue.pull_request.is_some().then_some(ToProcess {
+            } => issue.pull_request.is_some().then_some(Box::new(CommentPayload {
                 comment: comment,
                 issue: issue,
                 repository: repository,
                 installation: installation,
-            }),
+            })),
         },
+        Event::PullRequest(pull_request) => match pull_request {
+            PullRequestEvent::Synchronize {
+                pull_request,
+                repository,
+                installation,
+                ..
+            } => Some(Box::new(PullRequestPayload {
+                pull_request,
+                repository,
+                installation,
+            }))
+        }
     }
 }
 
@@ -276,31 +321,52 @@ impl Header for GitHubSignatureHeader {
     }
 }
 
-pub trait Command {
-    fn matches(message: &str, config: &Config) -> Option<Self>
-    where
-        Self: Sized;
-}
-
 #[derive(Debug)]
 pub struct BuildCommand {
-    name: String,
+    name: Option<String>,
+    installation_id: u32,
+    owner: String,
+    repo: String,
+    issue_number: u32,
+    clone_url: String,
 }
 
-impl Command for BuildCommand {
-    fn matches(message: &str, _config: &Config) -> Option<Self> {
-        let pattern = Regex::new(r#"build ([^\s]+)"#).unwrap();
+trait IntoBuildCommand {
+    fn into_command(self: Box<Self>, config: &Config) -> anyhow::Result<Option<BuildCommand>>;
+}
 
-        let captures = pattern.captures(message)?;
+impl IntoBuildCommand for CommentPayload {
+    fn into_command(self: Box<Self>, config: &Config) -> anyhow::Result<Option<BuildCommand>> {
+        let message = self.get_message(&config).ok_or_else(|| anyhow!("Comment did not contain a build trigger"))?;
+        let pattern = Regex::new(r#"build ([^\s]+)"#)?;
+        let captures = pattern.captures(&message).ok_or_else(|| anyhow!("Comment did not contain a build message"))?;
 
         if captures.len() == 2 {
-            let name = captures.get(1)?;
+            let name = captures.get(1).unwrap();
 
-            Some(BuildCommand {
-                name: name.as_str().to_string(),
-            })
+            Ok(Some(BuildCommand {
+                name: Some(name.as_str().to_string()),
+                installation_id: self.installation.id,
+                owner: self.repository.owner.login,
+                repo: self.repository.name,
+                issue_number: self.issue.number,
+                clone_url: self.repository.clone_url,
+            }))
         } else {
-            None
+            Ok(None)
         }
+    }
+}
+
+impl IntoBuildCommand for PullRequestPayload {
+    fn into_command(self: Box<Self>, _config: &Config) -> anyhow::Result<Option<BuildCommand>> {
+        Ok(Some(BuildCommand {
+            name: None,
+            installation_id: self.installation.id,
+            owner: self.repository.owner.login,
+            repo: self.repository.name,
+            issue_number: self.pull_request.number,
+            clone_url: self.repository.clone_url,
+        }))
     }
 }

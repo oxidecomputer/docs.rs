@@ -1,6 +1,6 @@
 //! Various utilities for docs.rs
 
-pub(crate) use self::cargo_metadata::{CargoMetadata, Package as MetadataPackage};
+pub(crate) use self::cargo_metadata::{CargoMetadata, CargoWorkspace, Package as MetadataPackage};
 pub(crate) use self::copy::copy_dir_all;
 pub use self::daemon::{start_daemon, watch_registry};
 pub(crate) use self::html::rewrite_lol;
