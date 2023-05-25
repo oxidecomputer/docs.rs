@@ -25,7 +25,6 @@ impl Default for SiteFeatures {
 }
 
 fn flag(key: &str, default: bool) -> bool {
-    var(key)
-        .and_then(|val| Ok(val.to_lowercase() == "true"))
+    var(key).map(|val| val.to_lowercase() == "true")
         .unwrap_or(default)
 }
