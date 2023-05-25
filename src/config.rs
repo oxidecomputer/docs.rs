@@ -1,6 +1,9 @@
 use anyhow::{anyhow, bail, Context, Result};
 use axum_extra::extract::cookie::Key;
-use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
+use base64::{
+    prelude::{BASE64_STANDARD, BASE64_STANDARD_NO_PAD},
+    Engine,
+};
 use github_app_authenticator::GitHubAppAuthenticator;
 use http::HeaderValue;
 use std::{env::VarError, error::Error, path::PathBuf, str::FromStr, time::Duration};
@@ -237,7 +240,7 @@ impl Config {
 
             wh_app_authenticator: GitHubAppAuthenticator::new(
                 env("WH_APP_ID", String::new())?.parse()?,
-                base64::decode(env("WH_APP_PRIVATE_KEY", String::new())?)?,
+                BASE64_STANDARD.decode(env("WH_APP_PRIVATE_KEY", String::new())?)?,
                 HeaderValue::from_str(&env("WH_APP_USER_AGENT", String::new())?)?,
             ),
             wh_build_trigger: env("WH_BUILD_TRIGGER", String::new())?,
