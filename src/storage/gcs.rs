@@ -76,7 +76,7 @@ impl GcsBackend {
     }
 
     pub(super) fn exists(&self, path: &str) -> Result<bool> {
-        Ok(self.meta(path).map(|_| true)?)
+        self.meta(path).map(|_| true)
     }
 
     pub(super) fn get_public_access(&self, _path: &str) -> Result<bool> {
@@ -107,13 +107,9 @@ impl GcsBackend {
 
             let request_range = range
                 .map(|range| {
-                    let mut r = Range::default();
-                    r.0 = range.clone().min();
-                    r.1 = range.max();
-
-                    r
+                    Range(range.clone().min(), range.max())
                 })
-                .unwrap_or_else(|| Range::default());
+                .unwrap_or_else(Range::default);
 
             let mut chunks = self
                 .client
@@ -185,14 +181,13 @@ impl<'a> StorageTransaction for GcsStorageTransaction<'a> {
             for _ in 0..3 {
                 let mut futures = FuturesUnordered::new();
 
-                let mut i = 0;
-                for blob in batch.drain(..) {
+                for (i, blob) in batch.drain(..).enumerate() {
                     let (req, upload_type) = requests.get(i).unwrap();
 
                     futures.push(
                         self.gcs
                             .client
-                            .upload_object(&req, blob.content.clone(), &upload_type)
+                            .upload_object(req, blob.content.clone(), upload_type)
                             .map_ok(|_| {
                                 debug!("Uploaded to GCS");
                                 self.gcs.metrics.uploaded_files_total.inc();
@@ -203,8 +198,6 @@ impl<'a> StorageTransaction for GcsStorageTransaction<'a> {
                                 blob
                             }),
                     );
-
-                    i += 1;
                 }
 
                 while let Some(result) = futures.next().await {
@@ -240,7 +233,7 @@ impl<'a> StorageTransaction for GcsStorageTransaction<'a> {
                     .await?;
 
                 if let Some(items) = list.items {
-                    if items.len() > 0 {
+                    if !items.is_empty() {
                         for item in items {
                             self.gcs
                                 .client

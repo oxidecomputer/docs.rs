@@ -180,9 +180,9 @@ pub(super) async fn authenticate(
         .url();
 
     // Store a crsf token for verifying the return response
-    jar = jar.add(create_csrf_cookie(&csrf.secret(), CSRF_DURATION));
+    jar = jar.add(create_csrf_cookie(csrf.secret(), CSRF_DURATION));
 
-    (jar, Redirect::to(&url.to_string()))
+    (jar, Redirect::to(url.as_ref()))
 }
 
 // Log the user out if they are logged in. This will attempt to delete all state cookies independent
@@ -241,7 +241,7 @@ fn create_authorization_cookie(duration: i64) -> anyhow::Result<Cookie<'static>>
     // Generate the actual session cookie and set its expiration to make the embedded value
     let cookie_expiration =
         Expiration::from(OffsetDateTime::now_utc()).map(|t| t + time::Duration::seconds(duration));
-    let mut session_cookie = Cookie::new(AUTH_COOKIE.clone(), serialized);
+    let mut session_cookie = Cookie::new(AUTH_COOKIE, serialized);
     session_cookie.set_expires(cookie_expiration);
 
     Ok(session_cookie)
@@ -290,7 +290,7 @@ fn get_jar_from_request<B>(req: &Request<B>) -> SignedCookieJar {
 }
 
 fn has_valid_cookie(jar: &SignedCookieJar) -> bool {
-    jar.get(&AUTH_COOKIE)
+    jar.get(AUTH_COOKIE)
         .and_then(|verified_cookie| {
             match serde_json::from_str::<AuthCookie>(verified_cookie.value()) {
                 Ok(value) => Some(value),
@@ -376,7 +376,7 @@ mod tests {
         };
         let serialized = serde_json::to_string(&token).unwrap();
         let fields = AuthFields {
-            id_token: format!("header.{}.signature", URL_SAFE_NO_PAD.encode(&serialized)),
+            id_token: format!("header.{}.signature", URL_SAFE_NO_PAD.encode(serialized)),
         };
 
         assert_eq!(token, fields.token().unwrap());

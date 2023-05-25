@@ -75,7 +75,7 @@ impl CargoMetadata {
                 .iter()
                 .find(|member| {
                     trace!(member = ?member.name(), ?root_name, "Test workspace member for root");
-                    member.name() == Some(&root_name)
+                    member.name() == Some(root_name)
                 })
                 .ok_or_else(|| anyhow!("Failed to find workspace member for {}", root_name))?
                 .value(),
@@ -89,7 +89,7 @@ impl CargoMetadata {
         let mut root_package = metadata
             .packages
             .into_iter()
-            .find(|pkg| &pkg.id == root)
+            .find(|pkg| pkg.id == root)
             .context("metadata.packages missing root package")?;
 
         // Reduce down the package targets to only the requested root
@@ -217,6 +217,6 @@ impl WorkspaceMember {
     }
 
     pub fn name(&self) -> Option<&str> {
-        self.0.split(' ').nth(0)
+        self.0.split(' ').next()
     }
 }

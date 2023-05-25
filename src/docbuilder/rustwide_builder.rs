@@ -44,10 +44,7 @@ pub enum PackageKind<'a> {
 
 impl<'a> PackageKind<'a> {
     pub fn published(&self) -> bool {
-        match self {
-            Self::GitHub { .. } => false,
-            _ => true,
-        }
+        matches!(self, Self::GitHub { .. })
     }
 }
 
@@ -337,7 +334,7 @@ impl RustwideBuilder {
 
     pub fn build_github_package(&mut self, name: &str, url: &str, branch: &str) -> Result<bool> {
         self.update_toolchain()?;
-        self.build_package(name, &branch, PackageKind::GitHub { name, url })
+        self.build_package(name, branch, PackageKind::GitHub { name, url })
     }
 
     pub fn build_workspace_packages(

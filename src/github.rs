@@ -49,14 +49,17 @@ pub async fn get_build_token(
     authenticator: &GitHubInstallationAuthenticator,
     repository: String,
 ) -> Result<String> {
-    let mut token_request = TokenRequest::default();
+    let permissions = Permissions {
+        contents: Some(ReadWrite::Read),
+        pull_requests: Some(ReadWrite::Read),
+        ..Default::default()
+    };
 
-    token_request.repositories = Some(vec![repository]);
-
-    let mut permissions = Permissions::default();
-    permissions.contents = Some(ReadWrite::Read);
-    permissions.pull_requests = Some(ReadWrite::Read);
-    token_request.permissions = Some(permissions);
+    let token_request = TokenRequest {
+        repositories: Some(vec![repository]),
+        permissions: Some(permissions),
+        ..Default::default()
+    };
 
     let token = authenticator.access_token(&token_request).await?;
 

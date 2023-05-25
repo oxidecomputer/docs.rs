@@ -438,7 +438,7 @@ impl BuildQueue {
             let kind = if let Some(github_url) = &krate.github {
                 PackageKind::GitHub {
                     name: &krate.name,
-                    url: &github_url,
+                    url: github_url,
                 }
             } else if let Some(registry) = &krate.registry {
                 PackageKind::Registry(registry)

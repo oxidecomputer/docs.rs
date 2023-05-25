@@ -199,7 +199,7 @@ pub(crate) async fn github_webhook_handler(
     let build = processable
         .into_command(&config)
         .map_err(internal_error)?
-        .ok_or_else(|| StatusCode::OK)?;
+        .ok_or(StatusCode::OK)?;
 
     info!(?build, "Processing build request");
 
@@ -264,10 +264,10 @@ fn extract_request(event: Event) -> Option<Box<dyn IntoBuildCommand + Send + Syn
                 .pull_request
                 .is_some()
                 .then_some(Box::new(CommentPayload {
-                    comment: comment,
-                    issue: issue,
-                    repository: repository,
-                    installation: installation,
+                    comment,
+                    issue,
+                    repository,
+                    installation,
                 })),
         },
         Event::PullRequest(pull_request) => match pull_request {
@@ -336,7 +336,7 @@ trait IntoBuildCommand {
 impl IntoBuildCommand for CommentPayload {
     fn into_command(self: Box<Self>, config: &Config) -> anyhow::Result<Option<BuildCommand>> {
         let message = self
-            .get_message(&config)
+            .get_message(config)
             .ok_or_else(|| anyhow!("Comment did not contain a build trigger"))?;
         let pattern = Regex::new(r#"build ([^\s]+)"#)?;
         let captures = pattern

@@ -299,7 +299,7 @@ impl QueueSubcommand {
 
                 let installation = ctx
                     .runtime()?
-                    .block_on(get_installation_for_owner(&app, &owner))?
+                    .block_on(get_installation_for_owner(app, &owner))?
                     .ok_or_else(|| {
                         anyhow!("Failed to find an installation for the requested owner")
                     })?;
