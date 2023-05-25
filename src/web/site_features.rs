@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::env::var;
 
 #[derive(Clone, Debug, Serialize)]
 pub(super) struct SiteFeatures {
@@ -13,12 +14,16 @@ pub(super) struct SiteFeatures {
 impl Default for SiteFeatures {
     fn default() -> Self {
         Self {
-            about: false,
-            credit: true,
-            feed: false,
-            search: false,
-            sitemap: false,
-            webhook: true,
+            about: flag("FEATURE_ABOUT", false),
+            credit: flag("FEATURE_CREDIT", true),
+            feed: flag("FEATURE_FEED", false),
+            search: flag("FEATURE_SEARCH", false),
+            sitemap: flag("FEATURE_SITEMAP", false),
+            webhook: flag("FEATURE_WEBHOOK", true),
         }
     }
+}
+
+fn flag(key: &str, default: bool) -> bool {
+    var(key).and_then(|val| Ok(val.to_lowercase() == "true")).unwrap_or(default)
 }

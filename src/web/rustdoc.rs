@@ -2448,12 +2448,16 @@ mod test {
                 .unwrap()
                 .contains("noindex"));
 
+            // NOTE: Private instance diverges here as all urls should be noindex
             assert!(web
                 .get("/dummy/latest/dummy/")
                 .send()?
                 .headers()
                 .get("x-robots-tag")
-                .is_none());
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("noindex"));
             Ok(())
         })
     }

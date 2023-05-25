@@ -239,7 +239,7 @@ impl Config {
             oauth_redirect_url: env("REDIRECT_URL", String::new())?,
 
             wh_app_authenticator: GitHubAppAuthenticator::new(
-                env("WH_APP_ID", String::new())?.parse()?,
+                env("WH_APP_ID", String::new())?.parse().unwrap_or(0),
                 BASE64_STANDARD.decode(env("WH_APP_PRIVATE_KEY", String::new())?)?,
                 HeaderValue::from_str(&env("WH_APP_USER_AGENT", String::new())?)?,
             ),

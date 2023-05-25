@@ -652,7 +652,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonical_url() {
+    fn test_canonical_url_does_not_exist() {
         wrapper(|env| {
             env.fake_release().name("foo").version("0.0.1").create()?;
             env.fake_release().name("foo").version("0.0.2").create()?;
@@ -664,9 +664,10 @@ mod tests {
                 &env.config(),
             );
 
-            assert!(response
+            // NOTE: Private instances should not present a canonical url
+            assert!(!response
                 .text()?
-                .contains("rel=\"canonical\" href=\"https://docs.rs/crate/foo/latest"));
+                .contains("rel=\"canonical\" href=\""));
 
             Ok(())
         })

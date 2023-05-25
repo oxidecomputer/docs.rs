@@ -1302,11 +1302,15 @@ mod tests {
                 .create()?;
 
             // make sure that crates get at most one release shown, so they don't crowd the homepage
+            // NOTE: This behavior is changed for private instances so that the homepage lists all
+            // recent builds
             assert_eq!(
                 get_release_links("/", env.frontend())?,
                 [
                     "/crate/crate_that_failed/0.1.0",
                     "/crate_that_succeeded_with_github/0.2.0/crate_that_succeeded_with_github/",
+                    "/crate/crate_that_succeeded_with_github/0.2.0-rc",
+                    "/crate_that_succeeded_with_github/0.1.0/crate_that_succeeded_with_github/",
                 ]
             );
 

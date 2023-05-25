@@ -18,6 +18,12 @@ env:
   DOCSRS_INCLUDE_DEFAULT_TARGETS: false
   DOCSRS_DOCKER_IMAGE: ghcr.io/rust-lang/crates-build-env/linux-micro
   SENTRY_ENVIRONMENT: dev
+  FEATURE_ABOUT: true
+  FEATURE_CREDIT: false
+  FEATURE_FEED: true
+  FEATURE_SEARCH: true
+  FEATURE_SITEMAP: true
+  FEATURE_WEBHOOK: false
 
 jobs:
   build:
