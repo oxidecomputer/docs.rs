@@ -231,12 +231,12 @@ impl Config {
 
             authentication_enabled: require_env("AUTH_REQUIRED")?,
             session_key: env("SESSION_KEY", generate_key_value())?,
-            oauth_domain: env("OAUTH_DOMAIN", String::new())?,
+            oauth_domain: env("OAUTH_DOMAIN", String::from("localhost"))?,
             oauth_client_id: env("OAUTH_CLIENT_ID", String::new())?,
             oauth_client_secret: env("OAUTH_CLIENT_SECRET", String::new())?,
-            oauth_auth_url: env("OAUTH_URL", String::new())?,
-            oauth_token_url: env("TOKEN_URL", String::new())?,
-            oauth_redirect_url: env("REDIRECT_URL", String::new())?,
+            oauth_auth_url: env("OAUTH_URL", String::from("http://localhost"))?,
+            oauth_token_url: env("TOKEN_URL", String::from("http://localhost"))?,
+            oauth_redirect_url: env("REDIRECT_URL", String::from("http://localhost"))?,
 
             wh_app_authenticator: GitHubAppAuthenticator::new(
                 env("WH_APP_ID", String::new())?.parse().unwrap_or(0),
