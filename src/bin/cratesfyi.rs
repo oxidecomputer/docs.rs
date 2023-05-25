@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context as _, Error, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use docs_rs::cdn::CdnBackend;
 use docs_rs::db::{self, add_path_into_database, Overrides, Pool, PoolClient};
-use docs_rs::github::{get_build_token, get_installation_for_owner, clone_url};
+use docs_rs::github::{clone_url, get_build_token, get_installation_for_owner};
 use docs_rs::repositories::RepositoryStatsUpdater;
 use docs_rs::utils::{
     get_config, queue_builder, remove_crate_priority, set_crate_priority, ConfigName,
@@ -191,7 +191,7 @@ impl CommandLine {
                 socket_addr,
                 registry_watcher,
                 metrics,
-                cdn_invalidation
+                cdn_invalidation,
             } => {
                 docs_rs::utils::start_daemon(
                     ctx,
@@ -297,7 +297,12 @@ impl QueueSubcommand {
                 let config = &ctx.config()?;
                 let app = &config.wh_app_authenticator;
 
-                let installation = ctx.runtime()?.block_on(get_installation_for_owner(&app, &owner))?.ok_or_else(|| anyhow!("Failed to find an installation for the requested owner"))?;
+                let installation = ctx
+                    .runtime()?
+                    .block_on(get_installation_for_owner(&app, &owner))?
+                    .ok_or_else(|| {
+                        anyhow!("Failed to find an installation for the requested owner")
+                    })?;
                 let auth = app.installation_authenticator(installation);
                 let token = ctx
                     .runtime()?

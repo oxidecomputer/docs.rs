@@ -2,6 +2,7 @@
 
 use crate::{
     db::Pool,
+    github::clone_url,
     repositories::RepositoryStatsUpdater,
     storage::rustdoc_archive_path,
     utils::{self, get_crate_priority, spawn_blocking},
@@ -18,7 +19,7 @@ use crate::{
         page::TemplateData,
         MatchSemver, MetaData,
     },
-    BuildQueue, Config, Metrics, Storage, RUSTDOC_STATIC_STORAGE_PREFIX, github::clone_url,
+    BuildQueue, Config, Metrics, Storage, RUSTDOC_STATIC_STORAGE_PREFIX,
 };
 use anyhow::{anyhow, Context as _};
 use axum::{

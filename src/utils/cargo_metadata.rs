@@ -7,7 +7,7 @@ use std::path::Path;
 use tracing::trace;
 
 pub(crate) struct CargoWorkspace {
-    pub(crate) meta: DeserializedMetadata
+    pub(crate) meta: DeserializedMetadata,
 }
 
 impl CargoWorkspace {
@@ -26,7 +26,7 @@ impl CargoWorkspace {
         };
 
         Ok(Self {
-            meta: serde_json::from_str::<DeserializedMetadata>(metadata)?
+            meta: serde_json::from_str::<DeserializedMetadata>(metadata)?,
         })
     }
 }

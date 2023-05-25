@@ -289,9 +289,8 @@ pub(super) fn build_axum_routes(config: Arc<Config>) -> AxumRouter {
         .route_layer(middleware::from_fn(authorized))
         .fallback(fallback);
 
-    let mut router: AxumRouter<AppState> = AxumRouter::new()
-        .merge(pubilc_routes)
-        .merge(base_routes);
+    let mut router: AxumRouter<AppState> =
+        AxumRouter::new().merge(pubilc_routes).merge(base_routes);
 
     if features.about {
         router = router.merge(

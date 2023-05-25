@@ -10,7 +10,7 @@ use crate::repositories::RepositoryStatsUpdater;
 use crate::storage::{rustdoc_archive_path, source_archive_path};
 use crate::utils::{
     copy_dir_all, parse_rustc_version, queue_builder, report_error, set_config, CargoMetadata,
-    ConfigName, CargoWorkspace,
+    CargoWorkspace, ConfigName,
 };
 use crate::RUSTDOC_STATIC_STORAGE_PREFIX;
 use crate::{db::blacklist::is_blacklisted, utils::MetadataPackage};
@@ -362,15 +362,26 @@ impl RustwideBuilder {
         }?;
         krate.fetch(&self.workspace).map_err(FailureError::compat)?;
 
-        let crates = build_dir.build(&self.toolchain, &krate, self.prepare_sandbox(&Limits::for_crate(&mut conn, DUMMY_CRATE_NAME)?)).run(|build| {
-            (|| -> Result<_> {
-                let meta = CargoWorkspace::load_from_rustwide(&self.workspace, &self.toolchain, &build.host_source_dir())?;
-                trace!(?meta.meta.workspace_members, "Determined workspace members");
+        let crates = build_dir
+            .build(
+                &self.toolchain,
+                &krate,
+                self.prepare_sandbox(&Limits::for_crate(&mut conn, DUMMY_CRATE_NAME)?),
+            )
+            .run(|build| {
+                (|| -> Result<_> {
+                    let meta = CargoWorkspace::load_from_rustwide(
+                        &self.workspace,
+                        &self.toolchain,
+                        &build.host_source_dir(),
+                    )?;
+                    trace!(?meta.meta.workspace_members, "Determined workspace members");
 
-                Ok(meta.meta.workspace_members)
-            })()
-            .map_err(|e| failure::Error::from_boxed_compat(e.into()))
-        }).map_err(|err| anyhow!("Failed to determine workspace members {:?}", err))?;
+                    Ok(meta.meta.workspace_members)
+                })()
+                .map_err(|e| failure::Error::from_boxed_compat(e.into()))
+            })
+            .map_err(|err| anyhow!("Failed to determine workspace members {:?}", err))?;
 
         for krate in crates {
             debug!(?krate, name = ?krate.name(), "Building workspace crate");

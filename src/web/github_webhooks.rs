@@ -196,7 +196,10 @@ pub(crate) async fn github_webhook_handler(
         StatusCode::OK
     })?;
 
-    let build = processable.into_command(&config).map_err(internal_error)?.ok_or_else(|| StatusCode::OK)?;
+    let build = processable
+        .into_command(&config)
+        .map_err(internal_error)?
+        .ok_or_else(|| StatusCode::OK)?;
 
     info!(?build, "Processing build request");
 
@@ -213,11 +216,7 @@ pub(crate) async fn github_webhook_handler(
         octorust::Client::new(&config.wh_user_agent, Credentials::Token(token.clone())).unwrap();
     let pr = github
         .pulls()
-        .get(
-            &build.owner,
-            &build.repo,
-            build.issue_number as i64,
-        )
+        .get(&build.owner, &build.repo, build.issue_number as i64)
         .await
         .map_err(internal_error)?;
 
@@ -231,12 +230,8 @@ pub(crate) async fn github_webhook_handler(
 
     let task = spawn_blocking(move || {
         let res = match &build.name {
-            Some(krate) => {
-                queue.add_github_crate(krate, &branch, 0, &tokened_url, false)
-            },
-            None => {
-                queue.add_github_crate(&build.repo, &branch, 0, &tokened_url, true)
-            }
+            Some(krate) => queue.add_github_crate(krate, &branch, 0, &tokened_url, false),
+            None => queue.add_github_crate(&build.repo, &branch, 0, &tokened_url, true),
         };
 
         if res.is_ok() {
@@ -265,12 +260,15 @@ fn extract_request(event: Event) -> Option<Box<dyn IntoBuildCommand + Send + Syn
                 repository,
                 installation,
                 ..
-            } => issue.pull_request.is_some().then_some(Box::new(CommentPayload {
-                comment: comment,
-                issue: issue,
-                repository: repository,
-                installation: installation,
-            })),
+            } => issue
+                .pull_request
+                .is_some()
+                .then_some(Box::new(CommentPayload {
+                    comment: comment,
+                    issue: issue,
+                    repository: repository,
+                    installation: installation,
+                })),
         },
         Event::PullRequest(pull_request) => match pull_request {
             PullRequestEvent::Synchronize {
@@ -282,8 +280,8 @@ fn extract_request(event: Event) -> Option<Box<dyn IntoBuildCommand + Send + Syn
                 pull_request,
                 repository,
                 installation,
-            }))
-        }
+            })),
+        },
     }
 }
 
@@ -337,9 +335,13 @@ trait IntoBuildCommand {
 
 impl IntoBuildCommand for CommentPayload {
     fn into_command(self: Box<Self>, config: &Config) -> anyhow::Result<Option<BuildCommand>> {
-        let message = self.get_message(&config).ok_or_else(|| anyhow!("Comment did not contain a build trigger"))?;
+        let message = self
+            .get_message(&config)
+            .ok_or_else(|| anyhow!("Comment did not contain a build trigger"))?;
         let pattern = Regex::new(r#"build ([^\s]+)"#)?;
-        let captures = pattern.captures(&message).ok_or_else(|| anyhow!("Comment did not contain a build message"))?;
+        let captures = pattern
+            .captures(&message)
+            .ok_or_else(|| anyhow!("Comment did not contain a build message"))?;
 
         if captures.len() == 2 {
             let name = captures.get(1).unwrap();

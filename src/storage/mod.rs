@@ -312,7 +312,7 @@ impl Storage {
                 }
                 Err(err) => {
                     warn!(?err, "Failed to extract file from index");
-                    return Err(err)
+                    return Err(err);
                 }
             }
         } else {

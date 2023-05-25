@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::Duration;
 use github_app_authenticator::{
     permissions::{Permissions, ReadWrite},
-    GitHubInstallationAuthenticator, TokenRequest, GitHubAppAuthenticator,
+    GitHubAppAuthenticator, GitHubInstallationAuthenticator, TokenRequest,
 };
 use http::header::USER_AGENT;
 use serde::Deserialize;
@@ -31,10 +31,18 @@ pub async fn get_installation_for_owner(
 ) -> Result<Option<u32>> {
     let url = format!("{}/app/installations", GITHUB_API_BASE);
     let ua = authenticator.user_agent();
-    let response = reqwest::Client::new().get(url).header(USER_AGENT, ua).bearer_auth(authenticator.generate_jwt(Duration::seconds(30))?).send().await?;
+    let response = reqwest::Client::new()
+        .get(url)
+        .header(USER_AGENT, ua)
+        .bearer_auth(authenticator.generate_jwt(Duration::seconds(30))?)
+        .send()
+        .await?;
     let installations: Vec<Installation> = response.json().await?;
 
-    Ok(installations.into_iter().find(|i| i.account.login == owner).map(|i| i.id))
+    Ok(installations
+        .into_iter()
+        .find(|i| i.account.login == owner)
+        .map(|i| i.id))
 }
 
 pub async fn get_build_token(

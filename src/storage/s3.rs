@@ -16,7 +16,7 @@ use futures_util::{
 };
 use std::{io::Write, sync::Arc};
 use tokio::runtime::Runtime;
-use tracing::{error, warn, trace, debug, instrument};
+use tracing::{debug, error, instrument, trace, warn};
 
 const PUBLIC_ACCESS_TAG: &str = "static-cloudfront-access";
 const PUBLIC_ACCESS_VALUE: &str = "allow";

@@ -1,4 +1,4 @@
-use std::{sync::Arc, collections::HashMap};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use chrono::Utc;
@@ -17,7 +17,7 @@ use google_cloud_storage::{
 };
 use std::io::Write;
 use tokio::runtime::Runtime;
-use tracing::{warn, debug, trace, instrument};
+use tracing::{debug, instrument, trace, warn};
 
 use crate::{Config, Metrics};
 
