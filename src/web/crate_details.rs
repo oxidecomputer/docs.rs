@@ -665,9 +665,7 @@ mod tests {
             );
 
             // NOTE: Private instances should not present a canonical url
-            assert!(!response
-                .text()?
-                .contains("rel=\"canonical\" href=\""));
+            assert!(!response.text()?.contains("rel=\"canonical\" href=\""));
 
             Ok(())
         })
