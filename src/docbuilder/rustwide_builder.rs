@@ -255,8 +255,15 @@ impl RustwideBuilder {
                 (|| -> Result<()> {
                     let metadata = Metadata::from_crate_root(build.host_source_dir())?;
 
-                    let res =
-                        self.execute_build(HOST_TARGET, true, build, &limits, &metadata, true, false)?;
+                    let res = self.execute_build(
+                        HOST_TARGET,
+                        true,
+                        build,
+                        &limits,
+                        &metadata,
+                        true,
+                        false,
+                    )?;
                     if !res.result.successful {
                         bail!("failed to build dummy crate for {}", self.rustc_version);
                     }
@@ -472,8 +479,15 @@ impl RustwideBuilder {
                     trace!("Performing initial build");
 
                     // Perform an initial build
-                    let mut res =
-                        self.execute_build(default_target, true, build, &limits, &metadata, false, use_workspace_flag)?;
+                    let mut res = self.execute_build(
+                        default_target,
+                        true,
+                        build,
+                        &limits,
+                        &metadata,
+                        false,
+                        use_workspace_flag,
+                    )?;
 
                     debug!(success = ?res.result.successful, "Initial build result");
 
@@ -670,6 +684,7 @@ impl RustwideBuilder {
         Ok(successful)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build_target(
         &self,
         target: &str,
@@ -680,7 +695,15 @@ impl RustwideBuilder {
         metadata: &Metadata,
         use_workspace_flag: bool,
     ) -> Result<()> {
-        let target_res = self.execute_build(target, false, build, limits, metadata, false, use_workspace_flag)?;
+        let target_res = self.execute_build(
+            target,
+            false,
+            build,
+            limits,
+            metadata,
+            false,
+            use_workspace_flag,
+        )?;
         if target_res.result.successful {
             // Cargo is not giving any error and not generating documentation of some crates
             // when we use a target compile options. Check documentation exists before
@@ -749,6 +772,7 @@ impl RustwideBuilder {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn execute_build(
         &self,
         target: &str,
