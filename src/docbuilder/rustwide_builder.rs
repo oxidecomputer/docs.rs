@@ -44,7 +44,7 @@ pub enum PackageKind<'a> {
 
 impl<'a> PackageKind<'a> {
     pub fn published(&self) -> bool {
-        matches!(self, Self::GitHub { .. })
+        !matches!(self, Self::GitHub { .. })
     }
 }
 
