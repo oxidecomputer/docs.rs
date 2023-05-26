@@ -31,6 +31,7 @@ impl CargoWorkspace {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct CargoMetadata {
     root: Package,
 }

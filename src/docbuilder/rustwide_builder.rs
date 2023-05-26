@@ -256,7 +256,7 @@ impl RustwideBuilder {
                     let metadata = Metadata::from_crate_root(build.host_source_dir())?;
 
                     let res =
-                        self.execute_build(HOST_TARGET, true, build, &limits, &metadata, true)?;
+                        self.execute_build(HOST_TARGET, true, build, &limits, &metadata, true, false)?;
                     if !res.result.successful {
                         bail!("failed to build dummy crate for {}", self.rustc_version);
                     }
@@ -467,11 +467,15 @@ impl RustwideBuilder {
                         other_targets,
                     } = metadata.targets(self.config.include_default_targets);
 
+                    let use_workspace_flag = !matches!(kind, PackageKind::CratesIo);
+
                     trace!("Performing initial build");
 
                     // Perform an initial build
                     let mut res =
-                        self.execute_build(default_target, true, build, &limits, &metadata, false)?;
+                        self.execute_build(default_target, true, build, &limits, &metadata, false, use_workspace_flag)?;
+
+                    debug!(success = ?res.result.successful, "Initial build result");
 
                     // If the build fails with the lockfile given, try using only the dependencies listed in Cargo.toml.
                     let cargo_lock = build.host_source_dir().join("Cargo.lock");
@@ -493,6 +497,7 @@ impl RustwideBuilder {
                             &limits,
                             &metadata,
                             false,
+                            use_workspace_flag,
                         )?;
                     }
 
@@ -547,6 +552,7 @@ impl RustwideBuilder {
                                 local_storage.path(),
                                 &mut successful_targets,
                                 &metadata,
+                                use_workspace_flag,
                             )?;
                         }
                         let (_, new_alg) = add_path_into_remote_archive(
@@ -622,6 +628,8 @@ impl RustwideBuilder {
                     }
 
                     let build_id = add_build_into_database(&mut conn, release_id, &res.result)?;
+                    debug!(?build_id, "Added build to the database");
+
                     let build_log_path = format!("build-logs/{build_id}/{default_target}.txt");
                     self.storage.store_one(build_log_path, res.build_log)?;
 
@@ -646,6 +654,8 @@ impl RustwideBuilder {
                         }
                     }
 
+                    debug!(success = ?res.result.successful, "Completed build");
+
                     Ok(res.result.successful)
                 })()
                 .map_err(|e| failure::Error::from_boxed_compat(e.into()))
@@ -668,8 +678,9 @@ impl RustwideBuilder {
         local_storage: &Path,
         successful_targets: &mut Vec<String>,
         metadata: &Metadata,
+        use_workspace_flag: bool,
     ) -> Result<()> {
-        let target_res = self.execute_build(target, false, build, limits, metadata, false)?;
+        let target_res = self.execute_build(target, false, build, limits, metadata, false, use_workspace_flag)?;
         if target_res.result.successful {
             // Cargo is not giving any error and not generating documentation of some crates
             // when we use a target compile options. Check documentation exists before
@@ -746,6 +757,7 @@ impl RustwideBuilder {
         limits: &Limits,
         metadata: &Metadata,
         create_essential_files: bool,
+        use_workspace_flag: bool,
     ) -> Result<FullBuildResult> {
         let res = CargoMetadata::load_from_rustwide(
             &self.workspace,
@@ -781,6 +793,10 @@ impl RustwideBuilder {
                 None
             }
         };
+
+        if use_workspace_flag {
+            rustdoc_flags.push(format!("-p{}", build.crate_name()));
+        }
 
         let successful = logging::capture(&storage, || {
             self.prepare_command(build, target, metadata, limits, rustdoc_flags)
@@ -870,8 +886,6 @@ impl RustwideBuilder {
             cargo_args.push("--target".into());
             cargo_args.push(target.into());
         };
-
-        cargo_args.push(format!("-p{}", build.crate_name()));
 
         #[rustfmt::skip]
         const UNCONDITIONAL_ARGS: &[&str] = &[
