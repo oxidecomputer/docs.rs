@@ -745,7 +745,7 @@ impl RustwideBuilder {
             items_with_examples: 0,
         };
 
-        self.prepare_command(build, target, metadata, limits, rustdoc_flags)?
+        self.prepare_command(build, target, metadata, limits, rustdoc_flags, false)?
             .process_lines(&mut |line, _| {
                 if line.starts_with('{') && line.ends_with('}') {
                     let parsed = match serde_json::from_str::<HashMap<String, FileCoverage>>(line) {
@@ -817,15 +817,23 @@ impl RustwideBuilder {
                 None
             }
         };
+        // use_workspace_flag: bool,
 
-        if use_workspace_flag {
-            rustdoc_flags.push(format!("-p{}", build.crate_name()));
-        }
+        // if use_workspace_flag {
+        //     rustdoc_flags.push(format!("-p{}", build.crate_name()));
+        // }
 
         let successful = logging::capture(&storage, || {
-            self.prepare_command(build, target, metadata, limits, rustdoc_flags)
-                .and_then(|command| command.run().map_err(Error::from))
-                .is_ok()
+            self.prepare_command(
+                build,
+                target,
+                metadata,
+                limits,
+                rustdoc_flags,
+                use_workspace_flag,
+            )
+            .and_then(|command| command.run().map_err(Error::from))
+            .is_ok()
         });
 
         // For proc-macros, cargo will put the output in `target/doc`.
@@ -865,6 +873,7 @@ impl RustwideBuilder {
         metadata: &Metadata,
         limits: &Limits,
         mut rustdoc_flags_extras: Vec<String>,
+        use_workspace_flag: bool,
     ) -> Result<Command<'ws, 'pl>> {
         // If the explicit target is not a tier one target, we need to install it.
         if !docsrs_metadata::DEFAULT_TARGETS.contains(&target) {
@@ -910,6 +919,10 @@ impl RustwideBuilder {
             cargo_args.push("--target".into());
             cargo_args.push(target.into());
         };
+
+        if use_workspace_flag {
+            cargo_args.push(format!("-p{}", build.crate_name()));
+        }
 
         #[rustfmt::skip]
         const UNCONDITIONAL_ARGS: &[&str] = &[
